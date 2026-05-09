@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+  <!-- Motion Medical cluster pattern, outlined version. -->
+  <g transform="translate(0,0)">
+    <path d="M40 10 h20 a10 10 0 0 1 10 10 v20 h20 a10 10 0 0 1 10 10 v0 a10 10 0 0 1 -10 10 h-20 v20 a10 10 0 0 1 -10 10 h0 a10 10 0 0 1 -10 -10 v-20 h-20 a10 10 0 0 1 -10 -10 v0 a10 10 0 0 1 10 -10 h20 v-20 a10 10 0 0 1 10 -10 z"/>
+  </g>
+  <g transform="translate(110,30)">
+    <path d="M40 10 h20 a10 10 0 0 1 10 10 v20 h20 a10 10 0 0 1 10 10 v0 a10 10 0 0 1 -10 10 h-20 v20 a10 10 0 0 1 -10 10 h0 a10 10 0 0 1 -10 -10 v-20 h-20 a10 10 0 0 1 -10 -10 v0 a10 10 0 0 1 10 -10 h20 v-20 a10 10 0 0 1 10 -10 z"/>
+  </g>
+  <g transform="translate(40,100)">
+    <path d="M40 10 h20 a10 10 0 0 1 10 10 v20 h20 a10 10 0 0 1 10 10 v0 a10 10 0 0 1 -10 10 h-20 v20 a10 10 0 0 1 -10 10 h0 a10 10 0 0 1 -10 -10 v-20 h-20 a10 10 0 0 1 -10 -10 v0 a10 10 0 0 1 10 -10 h20 v-20 a10 10 0 0 1 10 -10 z"/>
+  </g>
+  <g transform="translate(140,130)">
+    <path d="M40 10 h20 a10 10 0 0 1 10 10 v20 h20 a10 10 0 0 1 10 10 v0 a10 10 0 0 1 -10 10 h-20 v20 a10 10 0 0 1 -10 10 h0 a10 10 0 0 1 -10 -10 v-20 h-20 a10 10 0 0 1 -10 -10 v0 a10 10 0 0 1 10 -10 h20 v-20 a10 10 0 0 1 10 -10 z"/>
+  </g>
+</svg>
