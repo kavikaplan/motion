@@ -1,0 +1,50 @@
+[
+ {
+  "event_id": "k61ofcoo3nuo0le22p06u4ptas",
+  "title": "Fanny 2:30pm",
+  "action": "link",
+  "company_id": "669d250a5eef3e6da060ad0a",
+  "company": "Xinkromed",
+  "country": "Chile"
+ },
+ {
+  "event_id": "citmnus8sqa0q5oqthdeuuv2dk",
+  "title": "Rafael",
+  "action": "link",
+  "company_id": "69ce32e389c0fb6b968335b8",
+  "company": "PROMED QUIRURGICOS",
+  "country": "Colombia"
+ },
+ {
+  "event_id": "6328dmgjbtfholabfijbbljsis",
+  "title": "Chilemed / Kavi Kaplan — Reunión Dunitech",
+  "action": "link",
+  "company_id": "6acc22dd810ed8122a5cb3af",
+  "company": "IMC Insumos Médicos Chilemed SpA",
+  "country": "Chile"
+ },
+ {
+  "event_id": "msdfce28mro350a4jenduia2u0",
+  "title": "Juan Colina",
+  "action": "link",
+  "company_id": "669d24ff5eef3e6da0609ff5",
+  "company": "NEWSON S.A.",
+  "country": "Peru"
+ },
+ {
+  "event_id": "8vuu9252vbqj81n55sr0n8bnj4",
+  "title": "Ama Eye",
+  "action": "ignore",
+  "company_id": "",
+  "company": "",
+  "country": ""
+ },
+ {
+  "event_id": "eevjicrmeuknfs99vtvo82vtro",
+  "title": "Sports medicine",
+  "action": "ignore",
+  "company_id": "",
+  "company": "",
+  "country": ""
+ }
+]

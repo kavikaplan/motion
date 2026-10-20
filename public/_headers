@@ -1,0 +1,21 @@
+/*
+  X-Robots-Tag: noindex, nofollow
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: camera=(), microphone=(self), geolocation=(self)
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-BL3LqqKK/KqK7vU59OVCGhcScQjgUNgscvYOWdFbooA='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
+/index.html
+  Cache-Control: no-cache
+/
+  Cache-Control: no-cache
+/dash-runtime.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
+/data/*
+  Cache-Control: no-cache
+/page.*.js
+  Cache-Control: public, max-age=31536000, immutable
+/app.*.js
+  Cache-Control: public, max-age=31536000, immutable

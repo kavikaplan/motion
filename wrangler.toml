@@ -1,0 +1,9 @@
+name = "country-market-dashboard"
+pages_build_output_dir = "public"
+compatibility_date = "2026-10-01"
+
+# Medint's own copy of the activity log (Cloudflare D1)
+[[d1_databases]]
+binding = "MEDINT_DB"
+database_name = "medint"
+database_id = "08eae55a-4a74-4dd9-b0f4-61219d2588c6"

@@ -1,101 +1,129 @@
-# Motion Medical — Website Bundle
+# Medint — live website
 
-Pre-processed static site for Motion Medical. Plain HTML / CSS / vanilla JS.
-No build step, no frameworks, no dependencies.
+The same dashboard you use in Claude, as your own website:
 
-## Quick start
+- **Saved data** (trade data, tenders, registrations, pipeline copy) lives in `public/data/`.
+- **Live NetHunt data** goes through one small server function, `functions/api/nethunt.js`.
+  It holds your NetHunt key; the browser never sees it.
+- **Adding companies / writing fields** works when you switch writes on (step 5).
+- **Saved views and filters** are kept per browser.
+- **Local time, office hours and public holidays** work for every country.
+  - Holidays for 2026–2027 are saved in `public/data/holidays_all.json`: 156 countries, downloaded from Google's public holiday calendars on 12 Oct 2026.
+  - After 2027, or for a country missing from the file, `functions/api/holidays.js` fetches them live from Google; no login or key is needed.
+  - Palestine has no published holiday calendar.
+- **Not on the website:** 📅 meeting tags from your Google Calendar.
+  Those need your own Google login, so they stay in the Claude version.
 
-Open `index.html` in a browser. Everything works locally from the file system.
+Hosting: **Cloudflare Pages** (free) + **Cloudflare Access** (free login for up to 50 people).
 
-To deploy: upload the entire folder to any static host (Netlify, Vercel,
-Cloudflare Pages, GitHub Pages, S3, or a regular web server).
+---
 
-## What's included
+
+> **NetHunt connection (what works):** set two secrets in Cloudflare → Settings → Variables and secrets:
+> `NETHUNT_MCP_URL` = `https://nethunt.com/mcp` and `NETHUNT_MCP_TOKEN` = your NetHunt API key (`nh_live_…`).
+> Then Deployments → Retry deployment. Check `/api/nethunt` shows `"ok": true`.
+
+## Before you start (once)
+
+1. A free Cloudflare account: https://dash.cloudflare.com/sign-up
+2. Node.js (LTS) installed: https://nodejs.org
+3. Your **NetHunt MCP URL**: the personal NetHunt link you added to Claude as the NetHunt connector
+   (it looks like `https://nethunt.com/mcp/…`).
+   - Treat it like a password: anyone with it can read and write your CRM.
+   - If NetHunt only gives you a sign-in (OAuth) connection instead of a link, stop here and tell Claude.
+     The server function can be switched to NetHunt's REST API key instead.
+
+Open a terminal in this folder (the one with this README) for the commands below.
+
+## 1. Sign in and create the project
 
 ```
-motion-medical/
-├── index.html                  Home page
-├── products.html               All 9 products in a grid
-├── contact.html                Contact form + company info
-├── products/                   9 individual landing pages
-│   ├── indeflator-20cc.html
-│   ├── indeflator-30cc.html
-│   ├── kyphoplasty-inflator.html
-│   ├── coronary-injector.html
-│   ├── manifold.html
-│   ├── manifold-kit-set.html
-│   ├── trans-radial-band.html
-│   ├── bone-cement-mixer.html
-│   └── skin-stapler.html
-├── assets/products/            9 transparent-background hero PNGs
-├── css/styles.css              Full design system
-└── js/main.js                  Dropdown + mobile menu + form stub
+npx wrangler login
+npx wrangler pages project create country-market-dashboard --production-branch main
 ```
 
-## Design
+Your site address will be **https://country-market-dashboard.pages.dev**.
 
-- **Accent color:** teal-blue (`#1B94B8`) matching the brochure titles
-- **Typography:** system font stack for fast, reliable rendering
-- **Layout:** responsive, mobile-first, sticky header
-- **Products dropdown:** hover on desktop, tap-to-expand on mobile; shows
-  thumbnail + name + tagline for every product plus a "View all" footer link
-- **Landing pages:** hero image + description + spec table + "what's
-  included" + feature grid + bottom CTA band that links to the contact page
-- **Accessibility:** `aria-expanded` on the dropdown, keyboard-navigable,
-  closes on Escape, closes on outside-click
+## 2. Lock it with a login — do this before uploading anything
 
-## Prompt for Claude Code
+The data files contain CRM data, so the site must never be public.
 
-If you want Claude Code to customize or extend this bundle, use this prompt:
+In Cloudflare: **Zero Trust → Access → Applications → Add an application → Self-hosted**.
 
-> The `motion-medical/` folder contains a complete, working plain-HTML/CSS/JS
-> website for a medical-device company. Do not rebuild it from scratch — read
-> the existing `index.html`, `products.html`, `contact.html`, `css/styles.css`,
-> and `js/main.js` to understand the design system, then make the following
-> changes: [describe your changes here]. Keep the design system consistent,
-> preserve the hover dropdown and responsive behavior, and don't introduce
-> any build tools, frameworks, or npm dependencies.
+- **Application domain:** `country-market-dashboard.pages.dev`
+- Add a second domain, `*.country-market-dashboard.pages.dev`, which covers preview copies.
+- **Policy:** Action **Allow**, Include **Emails**. List each person who may open it (yours first).
+- **Login method:** One-time PIN. People get a code by email; no passwords to manage.
 
-## Things you'll want to change before launch
+(The first time you open Zero Trust, Cloudflare asks you to pick a team name and the Free plan.)
 
-1. **Contact info in `contact.html`** — currently placeholders (`info@motionmedical.com`,
-   phone, address). Replace with real values.
+## 3. Upload the site
 
-2. **Contact form backend** — `js/main.js` currently logs to the console.
-   Wire it to your preferred endpoint (Formspree, Getform, a serverless
-   function, etc.) by replacing the `console.log` line in the form handler.
+```
+npx wrangler pages deploy
+```
 
-3. **Company name** — the logo reads "Motion**Medical**". If your company
-   name is different, search-replace across the HTML files (it appears in
-   the `.logo` element in each page's header and in the `.site-footer`).
+## 4. Give the server your NetHunt key
 
-4. **Products with generic copy** (flagged because their source PDFs dropped
-   out of the sandbox before I could extract the Turkish text):
-   - `skin-stapler` — body copy is industry-standard, not from the brochure
-   - `bone-cement-mixer` — body copy is industry-standard, not from the brochure
-   - `kyphoplasty-inflator` — body copy is industry-standard, not from the brochure
-   - `manifold` — body copy is adapted from the manifold kit set (closely related product)
+```
+npx wrangler pages secret put NETHUNT_MCP_URL --project-name country-market-dashboard
+```
 
-   Re-upload those 4 PDFs and rerun the text extraction if you want the exact
-   translated marketing copy from the originals.
+Paste the NetHunt MCP URL when asked.
 
-5. **Hero image: skin stapler** — the only partial-view image in the set,
-   because the original PDF was unavailable when the hero was generated.
-   Re-upload the PDF to regenerate a full-device view.
+If NetHunt also gave you a separate token, add it too:
+`npx wrangler pages secret put NETHUNT_MCP_TOKEN --project-name country-market-dashboard`
 
-6. **Open Graph / favicon / SEO metadata** — not added by default. Add
-   `<meta property="og:*">`, `<meta name="description">`, and a favicon link
-   in each `<head>` before launch.
+Then upload again so the function picks the secret up:
 
-## Image processing notes
+```
+npx wrangler pages deploy
+```
 
-- Hero images are 1000×700 transparent PNG, centered with ~5% padding
-- Color-to-alpha conversion was used on the pastel-blue brochure background,
-  with edge feathering for smooth transitions
-- Images are sized for display at up to 560px wide at 2× DPI
+## 5. (Optional) Allow Add / Write
 
-## License
+By default the site is **read-only to NetHunt**: "Add to NetHunt" and "Write imports" are refused.
 
-All product names, specs, and brand references ("Morpho", "Maccore",
-reference numbers) come directly from the supplied brochures and belong to
-the respective rights holder. Verify with your legal team before publishing.
+To allow them:
+
+```
+npx wrangler pages secret put ALLOW_WRITES --project-name country-market-dashboard
+```
+
+Type `true`, then run `npx wrangler pages deploy` once more.
+
+## 6. Check it
+
+- Open https://country-market-dashboard.pages.dev/api/nethunt.
+  After the login it should show `{"ok":true,"folders":…}`.
+  If you see an error, the message says what's wrong (usually the URL/secret).
+- Open https://country-market-dashboard.pages.dev and you should see the Markets page.
+
+## Updating
+
+- **Live data** (companies, people, statuses, changes) is always current. Use ↻ Refresh in the top bar.
+- **Saved data** (trade report, tenders, registrations, pipeline copy, company index): ask Claude to refresh it.
+  You'll get a new copy of this folder; run `npx wrangler pages deploy` again.
+- **Dashboard changes** made in Claude come over the same way.
+
+## What's protected and how
+
+- The NetHunt key exists only as a Cloudflare secret. It isn't in any file in this folder or in the browser.
+- The server only allows dashboard tools on the Companies and Contacts folders. Nothing can delete.
+  Writes are refused unless `ALLOW_WRITES` is `true`.
+- Cloudflare Access sits in front of everything: pages, data files and the server function.
+
+
+## Meetings on the website (optional)
+Add a secret `GOOGLE_CALENDAR_ICS` in Cloudflare → Settings → Variables and secrets, with your Google Calendar's **Secret address in iCal format** (Google Calendar → ⚙ Settings → your calendar → Integrate calendar). Then Deployments → Retry deployment. Meetings then show on the website too.
+
+
+## Medint's own log copy (optional, recommended)
+Cloudflare → Workers & Pages → **D1 SQL database** → Create → name `medint`. Then medint (Pages project) → Settings → **Bindings** → Add → D1 database → Variable name `MEDINT_DB` → database `medint` → Save → Deployments → Retry deployment. Every action is then also stored in Medint's own database; House can download it at `/api/medint?csv=1`.
+
+## Optional secrets (Cloudflare Pages → Settings → Variables and secrets)
+
+| Secret | What it turns on |
+|---|---|
+| `ANTHROPIC_API_KEY` | ✨ AI summaries in the 📤 Client report (website version). The Claude version works without it. Optional `ANTHROPIC_MODEL` picks the model. |
+| `BRAVE_API_KEY` | Web search in 🔎 Find missing details. |

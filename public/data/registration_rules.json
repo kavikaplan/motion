@@ -1,0 +1,80 @@
+[
+{
+"iso": "EC",
+"country": "Ecuador",
+"regulator": "ARCSA (Agencia Nacional de Regulación, Control y Vigilancia Sanitaria)",
+"required": "Yes — registro sanitario before import and sale; implants are high-risk (Risk III/IV).",
+"rules": "New framework: Resolution ARCSA-DE-2026-003-DASP (signed 28 Apr 2026, published 18 May 2026).",
+"holder": "Any entity with an Ecuadorian RUC can be titular; documents signed electronically by the local technical responsible. Distributor needs a valid operating permit and BPADT (storage/distribution) certification.",
+"docs": "Technical documentation in Spanish or English; implants must ship with at least 3 patient ID cards (patient, clinical record, distributor/holder).",
+"time_cost": "Homologation route for foreign devices already registered by IMDRF high-surveillance authorities: fee USD 904.34. Standard-route fees and timelines: confirm with the holder.",
+"watch": "Registrations that lapse are cancelled — make sure the holder renews.",
+"confidence": "Medium — main rules confirmed; fees/timelines under the 2026 rule to confirm.",
+"sources": "lexis.com.ec (Res. ARCSA-DE-2026-003-DASP); gob.ec/arcsa trámites"
+},
+{
+"iso": "PE",
+"country": "Peru",
+"regulator": "DIGEMID (Ministerio de Salud)",
+"required": "Yes — registro sanitario; classes I–IV (implants are class III/IV).",
+"rules": "Class determines the dossier; higher classes need the most documentation.",
+"holder": "A Peruvian pharmaceutical establishment (droguería) authorised by DIGEMID holds the registration for a foreign manufacturer — agree data access and transfer conditions in the contract.",
+"docs": "Complete technical file for the device class (CE/ISO 13485 certificates, free-sale certificate, technical and clinical information, Spanish labels/IFU).",
+"time_cost": "DIGEMID response times are known to be slow — plan months, not weeks. Fees: confirm with the holder.",
+"watch": "Choose a holder willing to transfer the registration if the partnership ends.",
+"confidence": "Medium — structure confirmed; fees and timelines not confirmed.",
+"sources": "pureglobal.com (DIGEMID Peru); UPCH thesis on DIGEMID delays"
+},
+{
+"iso": "CO",
+"country": "Colombia",
+"regulator": "INVIMA (Instituto Nacional de Vigilancia de Medicamentos y Alimentos)",
+"required": "Yes — registro sanitario under Decreto 4725/2005; IIb and III are 'controlled' (INVIMA reviews the dossier before approval).",
+"rules": "Valid 10 years. UDI-DI reporting required (Resolución 1405 de 2022).",
+"holder": "Colombia lets a foreign manufacturer hold the registration directly with a local legal representative; you also need a Colombian importer with a CCAA (storage capacity) certificate.",
+"docs": "Test reports (bench, biocompatibility, sterilisation) and clinical evidence/clinical evaluation for IIb/III; importer authorisation; Spanish labelling; free-sale certificate.",
+"time_cost": "Plan about 6–8 months for IIb/III review. Fee about COP 4.4M (≈USD 1,060) per IIb/III product.",
+"watch": "Next Shoulder’s brochure lists Colombia as a country with sales — check whether a registration already exists and who holds it.",
+"confidence": "High — consistent across several sources.",
+"sources": "pureglobal.com (INVIMA); bioaccessla.com INVIMA checklist; INVIMA resolutions"
+},
+{
+"iso": "CL",
+"country": "Chile",
+"regulator": "ISP (Instituto de Salud Pública) — ANDIM department",
+"required": "Not for our products today. Most devices need no ISP registration; Decreto Exento 25 (published 19 Mar 2026) adds 39 device types — the implant entries are hip endoprostheses, cardiac stents/valves, cochlear and breast implants, surgical meshes (24-month deadline). Shoulder prostheses and IM nails / trauma implants are not on that list.",
+"rules": "Voluntary registration opens once ISP publishes its technical instructions (due within 12 months; not issued as of Oct 2026).",
+"holder": "Importer/distributor must be registered with ISP (company registration, warehouse authorisation, customs destination certificate) for devices under control.",
+"docs": "Will follow ISP's technical instructions (not yet published).",
+"time_cost": "No registration cost today if the products are not on the list.",
+"watch": "Per the MINSAL list annex, shoulder prostheses and IM nails are not among the 39 types — confirm with the importer before relying on it, and recheck if the list is extended. Public hospitals buy through ChileCompra's Convenio Marco 'Endoprótesis, Ortopedia y Trauma' (ID 2239-15-LR25): a distributor already on that framework is the fastest route into the public sector.",
+"confidence": "Medium-high — checked against MINSAL's list annex (Anexo 1) and law-firm summaries; confirm with the importer.",
+"sources": "carey.cl; diarioconstitucional.cl; bioaccessla.com; chileatiende.gob.cl; minsal.cl Anexo 1 (list of 39 devices); chilecompra.cl (Convenio Marco 2239-15-LR25)"
+},
+{
+"iso": "GT",
+"country": "Guatemala",
+"regulator": "MSPAS — Departamento de Regulación y Control de Productos Farmacéuticos y Afines",
+"required": "Yes — inscripción sanitaria; implants (internal use, sterile) are Class IV.",
+"rules": "Norma Técnica 37 v5-2016. Valid 5 years.",
+"holder": "Must be a legally established Guatemalan entity with an MSPAS distributor licence; the application is signed by a responsible professional (pharmaceutical chemist).",
+"docs": "Application form, technical information, finished-product specifications, primary/secondary packaging artwork.",
+"time_cost": "Lab analysis is done afterwards as market surveillance, so the certificate can be issued first. Fees: confirm with the holder.",
+"watch": "Renew every 5 years.",
+"confidence": "Medium.",
+"sources": "meddeviceguide.com (MSPAS registry); omcmedical.com; freyrsolutions.com"
+},
+{
+"iso": "PA",
+"country": "Panama",
+"regulator": "MINSA — Dirección Nacional de Dispositivos Médicos (DNDM)",
+"required": "Yes — registro sanitario before import, distribution or sale (Law 90 of 2017, amended by Law 92 of 2019; Executive Decree 490 of 2019).",
+"rules": "For public-hospital tenders a Certificado de Criterio Técnico (CCT) is also needed, showing the device meets the national technical sheet.",
+"holder": "Local importer/distributor with a DNDM operating licence.",
+"docs": "Free-sale certificate, good manufacturing practice certificate (ISO 13485), technical documentation.",
+"time_cost": "Confirm fees and timelines with the holder.",
+"watch": "Without a CCT you cannot sell into CSS/MINSA tenders even with a registration.",
+"confidence": "Medium — law confirmed; details to confirm.",
+"sources": "minsa.gob.pa (Decree, DNDM manual); meddeviceguide.com"
+}
+]

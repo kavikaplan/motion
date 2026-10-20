@@ -1,0 +1,510 @@
+{
+ "activity_2w": {
+  "title": "Activity (last 2 weeks)",
+  "source": {
+   "kind": "query",
+   "tool": "list_folder_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "from": "{{act_from}}",
+    "limit": 1000,
+    "types": [
+     "call",
+     "email",
+     "calendar",
+     "comment"
+    ]
+   }
+  }
+ },
+ "brand_companies": {
+  "title": "Companies carrying brand",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "_or": [
+      {
+       "Brand": {
+        "_in": "{{bq1}}"
+       }
+      },
+      {
+       "Brand": {
+        "_in": "{{bq2}}"
+       }
+      }
+     ]
+    },
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 1000
+   }
+  }
+ },
+ "brand_profiles": {
+  "title": "Competitor brand list",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "calendar_events": {
+  "title": "Calendar (next 3 weeks)",
+  "source": {
+   "kind": "query",
+   "tool": "list_events",
+   "args": {
+    "endTime": "{{cal_to}}",
+    "orderBy": "startTime",
+    "pageSize": 250,
+    "startTime": "{{cal_from}}"
+   }
+  }
+ },
+ "chat_transcript": {
+  "title": "WhatsApp chat",
+  "source": {
+   "kind": "query",
+   "tool": "get_record_timeline_item",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "recordId": "{{chat_rid}}",
+    "timelineId": "{{chat_tid}}"
+   }
+  }
+ },
+ "comment_scan": {
+  "title": "Comments (contact scan)",
+  "source": {
+   "kind": "query",
+   "tool": "list_folder_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "from": "{{cscan_from}}",
+    "limit": 1000,
+    "types": [
+     "comment"
+    ]
+   }
+  }
+ },
+ "companies": {
+  "title": "Companies in country",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "Country": {
+      "_any": "{{tags}}"
+     }
+    },
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 1000
+   }
+  }
+ },
+ "company_contacts": {
+  "title": "Company contacts",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "Company": {
+      "_eq": "{{cid}}"
+     }
+    },
+    "folderId": "6682e9b8b6386800f586c0b0",
+    "limit": 100
+   }
+  }
+ },
+ "company_emails": {
+  "title": "Company emails (no campaigns)",
+  "source": {
+   "kind": "query",
+   "tool": "list_record_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 200,
+    "recordId": "{{cid}}",
+    "types": [
+     "email"
+    ]
+   }
+  }
+ },
+ "company_fields": {
+  "title": "Editable NetHunt choices",
+  "source": {
+   "kind": "query",
+   "tool": "get_folder",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2"
+   }
+  }
+ },
+ "company_index": {
+  "title": "All NetHunt companies (index)",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "company_record": {
+  "title": "Company record",
+  "source": {
+   "kind": "query",
+   "tool": "get_record",
+   "args": {
+    "fieldKeys": "label",
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "recordId": "{{cid}}"
+   }
+  }
+ },
+ "company_schema": {
+  "title": "NetHunt company fields",
+  "source": {
+   "kind": "query",
+   "tool": "get_folder",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2"
+   }
+  }
+ },
+ "company_timeline": {
+  "title": "Company activity",
+  "source": {
+   "kind": "query",
+   "tool": "list_record_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 60,
+    "recordId": "{{cid}}",
+    "types": [
+     "comment",
+     "email",
+     "call",
+     "chat",
+     "calendar",
+     "campaign_email"
+    ]
+   }
+  }
+ },
+ "company_trade": {
+  "title": "Company trade data",
+  "source": {
+   "kind": "query",
+   "tool": "list_record_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 200,
+    "recordId": "{{cid}}",
+    "types": [
+     "comment"
+    ]
+   }
+  }
+ },
+ "competitor_footprint": {
+  "title": "Competitor export footprint",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "congresses": {
+  "title": "Congresses",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "contact_history": {
+  "title": "Real contact history (90 days)",
+  "source": {
+   "kind": "query",
+   "tool": "list_folder_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "from": "{{hist_from}}",
+    "limit": 1000,
+    "types": [
+     "call",
+     "email",
+     "chat",
+     "calendar"
+    ]
+   }
+  }
+ },
+ "countries": {
+  "title": "Country reference facts",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "country_regs": {
+  "title": "Registration progress",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {},
+    "folderId": "673c960008039266ccd2ead3",
+    "limit": 300
+   }
+  }
+ },
+ "deals": {
+  "title": "Deals",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {},
+    "folderId": "6682e9b8b6386800f586c0af",
+    "limit": 1000
+   }
+  }
+ },
+ "holidays": {
+  "title": "Public holidays (next 3 weeks)",
+  "source": {
+   "kind": "query",
+   "tool": "list_events",
+   "args": {
+    "calendarId": "{{hol_cal}}",
+    "endTime": "{{cal_to}}",
+    "pageSize": 50,
+    "startTime": "{{cal_from}}"
+   }
+  }
+ },
+ "holidays_year": {
+  "title": "Holidays 2026–2027",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "import_values": {
+  "title": "Imports from trade data",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "map_outlines": {
+  "title": "Map outlines",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "map_points": {
+  "title": "Map positions",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "maps_places": {
+  "title": "Google Maps pages (checked)",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "market_intel": {
+  "title": "Joints market by country",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "medint_assign": {
+  "title": "Medint assignments",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {},
+    "folderId": "6ad6101118904c2628e16827",
+    "limit": 500
+   }
+  }
+ },
+ "medint_ignore": {
+  "title": "Ignored companies",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "Active": {
+      "_eq": "Active"
+     }
+    },
+    "folderId": "6ad6c66c23cd83301a3640da",
+    "limit": 1000
+   }
+  }
+ },
+ "medint_log": {
+  "title": "Medint log",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "Epoch": {
+      "_gte": "{{log_from}}"
+     }
+    },
+    "folderId": "6ad6100defa2051dc4ad1ab7",
+    "limit": 1000
+   }
+  }
+ },
+ "medint_people": {
+  "title": "Medint people",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {},
+    "folderId": "6ad610066a38c15893c9d431",
+    "limit": 200
+   }
+  }
+ },
+ "meeting_links": {
+  "title": "Calendar ↔ company links",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "ortho_check": {
+  "title": "Ortho check (company websites)",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "osteo_trade": {
+  "title": "Osteosynthesis trade 2025",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "partner_contacts": {
+  "title": "People at best partners",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "Company": {
+      "_in": "{{pcids}}"
+     }
+    },
+    "folderId": "6682e9b8b6386800f586c0b0",
+    "limit": 1000
+   }
+  }
+ },
+ "partner_timeline": {
+  "title": "Partner activity summary",
+  "source": {
+   "kind": "query",
+   "tool": "list_record_timeline",
+   "args": {
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 10,
+    "recordId": "{{ncid}}",
+    "types": [
+     "comment",
+     "call",
+     "email",
+     "chat"
+    ]
+   }
+  }
+ },
+ "pipeline": {
+  "title": "Pipeline snapshot",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "pipeline_changes": {
+  "title": "Pipeline changes since snapshot",
+  "source": {
+   "kind": "query",
+   "tool": "list_records",
+   "args": {
+    "fieldKeys": "label",
+    "folderId": "6682e9b8b6386800f586c0b2",
+    "limit": 1000,
+    "since": "2026-10-12T13:20:00Z"
+   }
+  }
+ },
+ "registration_rules": {
+  "title": "Registration rules by country",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "registrations": {
+  "title": "Device registrations",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "rel_contacts": {
+  "title": "People of checked companies",
+  "source": {
+   "kind": "query",
+   "tool": "filter_records",
+   "args": {
+    "fieldKeys": "label",
+    "filter": {
+     "Company": {
+      "_in": "{{rel_ids}}"
+     }
+    },
+    "folderId": "6682e9b8b6386800f586c0b0",
+    "limit": 1000
+   }
+  }
+ },
+ "source_directory": {
+  "title": "Registers & tender portals directory",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "sources_used": {
+  "title": "Data sources used",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "tender_awards": {
+  "title": "Public tender awards",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "world_shapes": {
+  "title": "World map shapes",
+  "source": {
+   "kind": "file"
+  }
+ }
+}
