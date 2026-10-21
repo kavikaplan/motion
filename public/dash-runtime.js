@@ -152,11 +152,19 @@
   const mcp = {
     async callTool(server, tool, input) { return api(tool, input || {}); },
   };
+  // saved settings: kept on the server per login (phone and laptop share them), with this browser's copy as a fallback
+  const mergeSeed = (local, seed) => { if (!seed) return local; const out = JSON.parse(JSON.stringify(local || {})); out.ui = out.ui || {}; for (const [k, v] of Object.entries(seed.ui || {})) { if (Array.isArray(v) && Array.isArray(out.ui[k])) { const ids = new Set(out.ui[k].map((x) => x && x.id)); out.ui[k] = [...out.ui[k], ...v.filter((x) => !ids.has(x && x.id))]; } else if (out.ui[k] == null) out.ui[k] = v; } return out; };
+  const putT = {};
   const db = {
     doc(path) {
+      const key = 'db:' + path; const url = `/api/prefs?path=${encodeURIComponent(path)}`;
       return {
-        async get() { const v = store.get('db:' + path, undefined); return { exists: v !== undefined, data: () => (v === undefined ? undefined : JSON.parse(JSON.stringify(v))) }; },
-        async set(d) { store.set('db:' + path, d); },
+        async get() {
+          let v = store.get(key, undefined);
+          try { const r = await fetch(url, { credentials: 'same-origin', signal: AbortSignal.timeout(6000) }); if (r.ok) { const d = await r.json(); if (d.exists) v = d.data; else if (d.seed) { v = mergeSeed(v, d.seed); fetch(url, { method: 'PUT', credentials: 'same-origin', body: JSON.stringify(v) }).catch(() => {}); } if (v !== undefined) store.set(key, v); } } catch { /* offline: this browser's copy */ }
+          return { exists: v !== undefined, data: () => (v === undefined ? undefined : JSON.parse(JSON.stringify(v))) };
+        },
+        async set(d) { store.set(key, d); clearTimeout(putT[key]); putT[key] = setTimeout(() => { fetch(url, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(d) }).catch(() => {}); }, 1200); },
       };
     },
   };

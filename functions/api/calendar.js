@@ -39,8 +39,8 @@ export async function onRequestGet({ request, env }) {
   let text;
   const url = String(env.GOOGLE_CALENDAR_ICS).trim();
   try {
-    let r = await fetch(url, { cf: { cacheTtl: 300 } });
-    if (r.status === 404 && url.includes('@')) r = await fetch(url.replace(/@/g, '%40'), { cf: { cacheTtl: 300 } }); // same address, email encoded
+    let r = await fetch(url, { cf: { cacheTtl: 300 }, signal: AbortSignal.timeout(10000) });
+    if (r.status === 404 && url.includes('@')) r = await fetch(url.replace(/@/g, '%40'), { cf: { cacheTtl: 300 }, signal: AbortSignal.timeout(10000) }); // same address, email encoded
     if (!r.ok) return json({ error: `Google Calendar answered ${r.status}`, code: 'upstream', hint: /\/private-[0-9a-f]+\/basic\.ics/.test(url) ? 'The secret address looks right but Google refused it — reset it in Google Calendar (Integrate calendar → Reset) and paste the new one.' : 'This is not the “Secret address in iCal format” (it should contain /private-…/basic.ics). The public address only works for public calendars.' }, 502);
     text = await r.text();
   } catch (e) { return json({ error: 'Could not reach Google Calendar', code: 'upstream' }, 502); }

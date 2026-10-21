@@ -127,3 +127,6 @@ Cloudflare → Workers & Pages → **D1 SQL database** → Create → name `medi
 |---|---|
 | `ANTHROPIC_API_KEY` | ✨ AI summaries in the 📤 Client report (website version). The Claude version works without it. Optional `ANTHROPIC_MODEL` picks the model. |
 | `BRAVE_API_KEY` | Web search in 🔎 Find missing details. |
+
+## Saved settings on the website
+Trips, congress stars, templates, saved views and other settings are now kept per login in the D1 database (`MEDINT_DB`, table `prefs`), so phone and laptop share them. The first time Kavi or Team opens the website, the trips from the Claude version are added automatically.

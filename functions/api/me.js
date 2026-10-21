@@ -3,7 +3,7 @@ import { whoIs } from '../_lib/access.js';
 import { callTool } from './nethunt.js';
 export async function onRequestGet({ request, env }) {
   const email = (request.headers.get('cf-access-authenticated-user-email') || '').toLowerCase();
-  const house = String(env.MEDINT_HOUSE || 'hi@kavikaplan.com,team@kavikaplan.com').toLowerCase().split(',').map((x) => x.trim());
+  const house = String(env.MEDINT_HOUSE || 'hi@kavikaplan.com').toLowerCase().split(',').map((x) => x.trim());
   // never assume House: only the House list, or a People record that says so
   let who = { email, name: email.split('@')[0], role: !email ? 'House' : house.includes(email) ? 'House' : 'Person', active: true }; let lookup = 'skipped';
   if (email && env.NETHUNT_MCP_URL) { try { who = await whoIs(env, (n, a) => callTool(env, n, a), email); lookup = 'ok'; } catch { lookup = 'failed'; } }

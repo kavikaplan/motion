@@ -119,6 +119,7 @@ function ensureCompanyView() {
   }),
   (window.cmOpenCountry = (t) => {
     const e = rowsOf('countries').find((e) => e.iso === t);
+    if (e && !allowIso(t)) return void say(`${e.country} isn’t one of your markets`, !0);
     e &&
       ((showAllBrands = !1),
       (search.value = ''),
@@ -929,8 +930,9 @@ function makeCombo(t, e, n, a = {}) {
               : 'Tab' === n.key && !e.hidden && s >= 0 && p(s);
     }));
 }
+const allowIso = (iso) => { const s = window.__cm2 && window.__cm2.allowedIsos ? window.__cm2.allowedIsos() : null; return !s || s.has(iso); }; // Persons see only their countries
 function countryItems(t) {
-  const e = rowsOf('countries'),
+  const e = rowsOf('countries').filter((c) => allowIso(c.iso)),
     n = norm(t).trim();
   return (
     n
@@ -960,7 +962,7 @@ const cpop = qs('#cm-cpop'),
   TRIP_ISOS = ['CO', 'EC', 'PE', 'GT', 'PA', 'CL'];
 function groupItems(e) {
   const n = norm(e).trim(),
-    a = rowsOf('countries'),
+    a = rowsOf('countries').filter((c) => allowIso(c.iso)),
     o = [],
     r = savedGroups,
     c = { icon: '🧳', label: 'My trip', isos: TRIP_ISOS },
@@ -972,8 +974,9 @@ function groupItems(e) {
       .map(([t, e]) => ({ icon: '🌍', label: t, isos: e.map((t) => t.iso) }))
       .sort((t, e) => t.label.localeCompare(e.label));
   return (
-    [{ icon: '🌐', label: 'All countries', isos: a.map((t) => t.iso) }, c, ...r.map((t) => ({ icon: '⭐', label: t.label, isos: t.isos })), ...d].forEach((t) => {
+    [{ icon: '🌐', label: window.__cm2 && window.__cm2.allowedIsos && window.__cm2.allowedIsos() ? 'All my countries' : 'All countries', isos: a.map((t) => t.iso) }, c, ...r.map((t) => ({ icon: '⭐', label: t.label, isos: t.isos })), ...d].forEach((t) => {
       if (n && !norm(t.label).includes(n)) return;
+      t = { ...t, isos: t.isos.filter(allowIso) }; if (!t.isos.length) return;
       const e = t.isos.map((t) => (a.find((e) => e.iso === t) || {}).country).filter(Boolean);
       o.push({
         icon: t.icon,
@@ -1003,7 +1006,7 @@ function groupItems(e) {
                       const t = norm(a.value).trim();
                       o.replaceChildren(
                         ...rowsOf('countries')
-                          .filter((n) => !t || norm(n.country).includes(t) || e.has(n.iso))
+                          .filter((n) => allowIso(n.iso) && (!t || norm(n.country).includes(t) || e.has(n.iso)))
                           .sort((t, n) => e.has(n.iso) - e.has(t.iso) || t.country.localeCompare(n.country))
                           .map((t) => {
                             const n = el('label', 'cm-check'),
@@ -1140,7 +1143,7 @@ makeCombo(findInput, qs('#cm-find-list'), (t) => {
   if (!n)
     return [
       { group: 'Tips' },
-      { icon: '⌨️', label: 'Type a country, a brand, a company, or both — e.g. “zimed colombia”', sub: '', act: () => findInput.focus() },
+      { icon: '⌨️', label: 'Type a country, a brand, a company, or both — e.g. “next colombia”', sub: '', act: () => findInput.focus() },
     ];
   const a = rowsOf('countries'),
     o = new Map();
@@ -1148,9 +1151,11 @@ makeCombo(findInput, qs('#cm-find-list'), (t) => {
     rowsOf('brands_in_country').forEach((t) => {
       o.has(t.brand) || o.set(t.brand, t.origin);
     }));
+  try { const X = window.__cm3 && window.__cm3.brandExtra ? window.__cm3.brandExtra() : []; X.forEach((t) => { if (t.merged) o.delete(t.name); else if (!o.has(t.name)) o.set(t.name, t.iso); }); X.forEach((t) => { if (t.merged && !o.has(t.merged)) o.set(t.merged, ''); }); } catch { /* added brands are optional */ }
   const r = n.split(/\s+/).filter(Boolean),
     i = a
       .filter((t) => {
+        if (!allowIso(t.iso)) return !1;
         const e = norm(t.country);
         return (
           r.some(
@@ -1173,6 +1178,8 @@ makeCombo(findInput, qs('#cm-find-list'), (t) => {
     d = dash.params().iso,
     p = a.find((t) => t.iso === d),
     u = [];
+  { const OB = [['next', /^(next|nextshoulder|next-shoulder|shoulder)$/], ['dunitech', /^(dunitech|duni|duni-tech)$/], ['motion', /^(motion|motionmedical)$/]]; const ob = OB.find(([, re]) => r.some((w) => re.test(w)));
+    if (ob) { const cs = i.length ? i : p ? [p] : []; if (cs.length) { u.push({ group: `${OURS[ob[0]].label}` }); cs.slice(0, 3).forEach((e) => u.push({ icon: flag(e.iso), label: `${OURS[ob[0]].label} in ${e.country}`, sub: 'Best to call · by status', act: () => { window.cmOpenCountry(e.iso); dash.setParams({ ours: ob[0], ctab: 'companies', csub: 'partners', psort: 'status' }); } })); } } }
   if (
     (c.length &&
       i.length &&
@@ -1852,6 +1859,8 @@ const MOBILE_RULES = {
 };
 // numbers you marked as not on WhatsApp (saved with your settings)
 let noWaNums = new Set();
+function unmarkNoWa(num) { noWaNums.delete(digits(num).replace(/^00/, '')); say(`${num} shows WhatsApp again`); dash.setParams({}); }
+const isNoWa = (num) => noWaNums.has(digits(num).replace(/^00/, ''));
 function markNoWa(num) { noWaNums.add(digits(num).replace(/^00/, '')); say(`${num} marked as not on WhatsApp`); dash.setParams({}); }
 function iconLink(t, e, n, a, o) {
   const s = el('a', `cm-qi ${t}`);
@@ -1923,7 +1932,7 @@ function cmRecentRows() {
   const t = dash.params().iso,
     e = rowsOf('countries'),
     n = cmRecent
-      .filter((x) => x !== t)
+      .filter((x) => x !== t && allowIso(x))
       .map((x) => e.find((c2) => c2.iso === x))
       .filter(Boolean)
       .slice(0, 3);
@@ -2271,11 +2280,12 @@ function contactLine(t, e, { linkedin: n, phones: a, emails: o }) {
     l = String(n || '').trim();
   return (
     /linkedin\.com|^https?:/i.test(l) && c.append(iconLink('li', ICON_LI, /^https?:/i.test(l) ? l : `https://${l}`, 'Open LinkedIn', !0)),
+    (window.__cm3 && window.__cm3.multiPhone ? window.__cm3.multiPhone(c, a.filter(goodPhone)) : 0) ||
     a
       .filter(goodPhone)
-      .slice(0, 2)
+      .slice(0, 1)
       .forEach((t) => {
-        if ((c.append(cmCopyBtn(t)), waOk(t))) {
+        if ((c.append(cmCopyBtn(t)), isNoWa(t) && window.__cm3 && window.__cm3.waBack && c.append(window.__cm3.waBack(t)), waOk(t))) {
           c.append(iconLink('wa', ICON_WA, waHref(t), `WhatsApp ${t}`, !0));
           const nx = el('button', 'cm-nowa', '✕'); nx.type = 'button'; nx.title = `${t} isn't on WhatsApp — stop showing WhatsApp for it`; nx.setAttribute('aria-label', nx.title);
           nx.addEventListener('click', (ev) => { ev.stopPropagation(); markNoWa(t); nx.previousSibling && nx.previousSibling.remove(); nx.remove(); });
@@ -2304,40 +2314,10 @@ const firstPara = (t, e) => {
       .trim();
     return n.length > e ? `${n.slice(0, e - 1)}…` : n;
   };
-function notesNode(t, n, a) {
-  const o = el('div', 'cm-note cm-sum');
-  const ago = (x) => { const e = agoDays(x); return null == e ? '' : 0 === e ? 'today' : 1 === e ? 'yesterday' : `${e} days ago`; };
-  const act = el('div', 'cm-sumact');
-  act.append(prepBtn(n.id, !0));
-  const vn = el('button', 'cm-btn ghost', '📝 Visit notes'); vn.type = 'button'; vn.addEventListener('click', (ev) => { ev.stopPropagation(); openVisitNotes(vn, n.id, n.company); }); act.append(vn);
-  const p = el('button', 'cm-co', 'Open company →'); p.type = 'button'; p.dataset.openCompany = n.id; act.append(p);
-  o.append(act);
-  const sec = (ic, title) => { const d = el('div', 'cm-sumsec'); d.append(el('div', 'k', `${ic} ${title}`)); o.append(d); return d; };
-  const top = el('div', 'cm-sumtop'); top.append(el('span', 'cm-spill', n[`status_${a}`] || STAGE[n[`stage_${a}`]] || 'No status'));
-  const rc = realContact(n.id);
-  top.append(el('span', 'mut', rc ? `last contact ${rc.ago} ago · ${{ call: '☎ call', chat: '💬 WhatsApp', email: '✉ email', meeting: '📅 meeting' }[rc.type] || rc.type}` : rc === null ? 'no real contact yet' : t.last_interaction ? `last activity ${ago(t.last_interaction)}` : 'never contacted'));
-  o.append(top);
-  if (t.next_step || t.next_followup) { const d = sec('🏁', 'Next'); d.append(el('div', 'cm-sumnext', `${t.next_step || 'follow up'}${t.next_followup ? ` · ${dueLabel(t.next_followup)}` : ''}`)); }
-  const bullets = (txt, max) => String(txt || '').split(/\n+|(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ])/).map((x) => x.replace(/^[-•*\s]+/, '').trim()).filter((x) => x.length > 2 && !/^(snov|registry enrichment|enriched|source:|\[auto\]|imported)/i.test(x)).slice(0, max);
-  const ul = (arr) => { const u = el('ul'); arr.forEach((x) => u.append(el('li', null, clip(x, 200)))); return u; };
-  const nb = bullets(t.update, 3); nb.length && sec('📰', 'Latest update').append(ul(nb));
-  const nn = bullets(t.notes, 5); nn.length && sec('🗒', 'Notes').append(ul(nn));
-  const d = dash.data('partner_timeline'); const ev = sec('🕑', 'Recent activity');
-  if (dash.params().ncid !== n.id || 'loading' === d.status || d.refreshing) ev.append(el('p', 'mut', 'Loading…'));
-  else if ('error' === d.status) ev.append(el('p', 'mut', 'Couldn’t load the timeline.'));
-  else if (!d.data.length) ev.append(el('p', 'mut', 'Nothing logged yet.'));
-  else {
-    const u = el('ul', 'cm-sumev');
-    d.data.filter((x) => 'campaign_email' !== x.type).slice(0, 6).forEach((x) => {
-      const li = el('li'); const ic = el('span', 'i'); const sv = { call: ICON_TEL, chat: ICON_WA, email: ICON_MAIL }[x.type]; sv ? (ic.innerHTML = sv) : (ic.textContent = { calendar: '📅', comment: '📝' }[x.type] || '•');
-      const b = el('span'); b.append(el('span', 'mut', `${x.time ? ago(x.time) : ''}${x.by ? ` · ${String(x.by).split(' ')[0]}` : ''}`), el('br'), clip(x.title ? `${x.title} — ${x.detail || ''}` : x.detail || '', 170));
-      li.append(ic, b); u.append(li);
-    });
-    ev.append(u);
-  }
-  return o;
+function notesNode(t, n, a) { // the Summary pop-up — built by app3 (tiles, AI summary); a plain fallback while it loads
+  if (window.__cm3 && window.__cm3.notesNode) return window.__cm3.notesNode(t, n, a, { prep: () => prepBtn(n.id, !0), visit: (b) => openVisitNotes(b, n.id, n.company), due: dueLabel, stage: STAGE });
+  const o = el('div', 'cm-note cm-sum'); const p = el('button', 'cm-co', 'Open company →'); p.type = 'button'; p.dataset.openCompany = n.id; o.append(p); return o;
 }
-
 function contactChip(t, n, a) {
   const rc0 = a.__rc !== undefined ? a.__rc : a.__id ? realContact(a.__id) : undefined;
   rc0 !== undefined && ((t = rc0 ? rc0.days : null), (n = rc0 ? rc0.time : null));
@@ -2501,11 +2481,11 @@ function openOrthoEditor(anchor, row) {
 let rcCache = { src: null, map: new Map() };
 function realContact(id) {
   const d = dash.data('contact_history'); if (d.status !== 'ok') return undefined; // undefined = not loaded yet
-  if (rcCache.src !== d.data) {
+  if (rcCache.src !== d.data || rcCache.len !== d.data.length) {
     const m = new Map(), st = new Map(), t14 = new Date(Date.now() - 14 * 864e5).toISOString();
     d.data.forEach((e) => { const cur = m.get(e.record_id); if (!cur || e.time > cur.time) m.set(e.record_id, e);
       const s = st.get(e.record_id) || { n: 0, n14: 0, in: 0, in14: 0 }; s.n++; if ('in' === e.dir) s.in++; if (e.time >= t14) { s.n14++; if ('in' === e.dir) s.in14++; } st.set(e.record_id, s); });
-    rcCache = { src: d.data, map: m, stats: st };
+    rcCache = { src: d.data, len: d.data.length, map: m, stats: st };
   }
   const e = rcCache.map.get(id); if (!e) return null;
   const ms = Date.now() - new Date(e.time); const days = Math.max(0, Math.floor(ms / 864e5));
@@ -2809,19 +2789,21 @@ function drawPartners() {
   }
   if ((n.classList.toggle('dash-skeleton', 'loading' === o.status), 'error' === o.status)) return failLine(n);
   n.replaceChildren();
-  const C = ['score', 'recent', 'near', 'meeting'].includes(dash.params().psort) && (dash.params().psort !== 'near' || nearPos) ? dash.params().psort : ['score', 'recent'].includes(dash.params().psort) ? dash.params().psort : 'status',
+  { const ntg = (p === 'next') && window.__cm2 && window.__cm2.nextTag && window.__cm2.nextTag(dash.params().iso); ntg && n.append(ntg); }
+  const C = ['score', 'recent', 'near', 'meeting', 'next'].includes(dash.params().psort) && (dash.params().psort !== 'near' || nearPos) ? dash.params().psort : ['score', 'recent'].includes(dash.params().psort) ? dash.params().psort : dash.params().psort === 'status' || (window.__cm2 && window.__cm2.isHouse()) ? 'status' : 'next', // People open in Power hour order; House keeps Status
     x = ['dunitech', 'next', 'motion'].includes(dash.params().pstat) ? dash.params().pstat : 'best',
     E = (t) => (u.all ? ('best' === x ? t.stage_all : t[`stage_${x}`]) : t[`stage_${p}`]) || 0,
     S = (t) => String((u.all ? ('best' === x ? '' : t[`status_${x}`]) : t[`status_${p}`]) || ''),
     L = el('button', 'cm-chip cm-psort');
   ((L.type = 'button'),
     L.setAttribute('aria-haspopup', 'menu'),
-    (L.textContent = `Sort: ${{ score: 'Score', status: 'Status', recent: 'Last contacted', near: 'Near me', meeting: 'Next meeting' }[C]}`),
+    (L.textContent = `Sort: ${{ score: 'Score', status: 'Status', recent: 'Last contacted', near: 'Near me', meeting: 'Next meeting', next: 'Do next' }[C]}`),
     L.append(el('span', 'cm-caret', '▾')),
     L.addEventListener('click', () =>
       openMenu(
         L,
         [
+          ['next', '⚡', 'Do next', 'the Power hour order: replies, meetings, follow-ups and sequence steps first'],
           ['score', '🏆', 'Score', 'best partners first'],
           ['status', '📈', 'Status', 'furthest stage first, then score'],
           ['recent', '🕑', 'Last contacted', 'real conversations only, most recent first'],
@@ -2904,11 +2886,12 @@ function drawPartners() {
   { $.closest('.cm-bhead') && $.closest('.cm-bhead').querySelectorAll('.cm-phbtn').forEach((x) => x.remove()); const ph = el('button', 'cm-chip cm-phbtn', '⚡ Power hour'); ph.type = 'button'; ph.title = 'Work through the list one company at a time: replies first, then follow-ups due, then the best never contacted'; ph.addEventListener('click', () => window.__cm2.openPowerHour(ph)); const hh = $.closest('.cm-bhead') && $.closest('.cm-bhead').querySelector('h2'); hh ? hh.after(ph) : $.prepend(ph); }
   { const cb = el('button', 'cm-chip', selIds.size >= 2 ? `⚖ Compare ${Math.min(4, selIds.size)} ticked` : '⚖ Compare top 3'); cb.type = 'button'; cb.title = selIds.size >= 2 ? 'The companies you ticked, side by side' : `The 3 best companies ${dash.params().pcity ? 'in this city' : 'here'} side by side — or tick 2–4 companies to compare those`; cb.addEventListener('click', () => openCompare3(cb, p)); $.append(cb); }
   const A = ('ok' === o.status ? o.data : [])
-      .filter((t) => t[`score_${p}`] > 0 && t[`stage_${p}`] < 6 && ('all' === v || t[`seg_brands_${p}`] > 0) && !(dash.params().phide && isPerson(t.company)) && (!window.__cm2 || window.__cm2.passAssign(t.id)))
+      .filter((t) => t[`score_${p}`] > 0 && t[`stage_${p}`] < 6 && ('all' === v || t[`seg_brands_${p}`] > 0) && !(dash.params().phide && isPerson(t.company)) && (!window.__cm2 || window.__cm2.passAssign(t.id)) && !(window.__cm2 && window.__cm2.nextHide && window.__cm2.nextHide(dash.params().iso, p, t.id)) && ('motion' === p || t.cat_ok || t.ortho_rel || t[`score_${p}`] >= 60 || t[`stage_${p}`] >= 3))
       .map((t) => { const rc = realContact(t.id); const pt = 'near' === C ? companyPoint(t.id, t.city) : null; const mt0 = 'meeting' === C ? nextMeetingAt(t.id) : null; return Object.assign(t, { __mt: mt0, __rc: rc, __days: rc === undefined ? t.days_since_contact : rc ? rc.days : null, __km: pt && nearPos ? kmBetween(nearPos, pt) : null }); })
       .sort(
         (t, e) =>
           (window.__cm2 ? window.__cm2.isIgnored(t.id) - window.__cm2.isIgnored(e.id) : 0) || // ignored companies go to the bottom
+          ('next' === C && window.__cm2 ? window.__cm2.phRank(t.id) - window.__cm2.phRank(e.id) : 0) || // Do next: exactly the Power hour order
           (e.__rc && e.__rc.pending ? 1 : 0) - (t.__rc && t.__rc.pending ? 1 : 0) || // they wrote and nobody answered: top
           ('status' === C
             ? E(e) - E(t) || S(t).localeCompare(S(e))
@@ -4465,14 +4448,11 @@ onData(() => {
             const w = [u.get('City') ? String(u.get('City')).replace(/\n/g, ', ') : null, u.get('Category') || null].filter(Boolean);
             if (y) {
               const t = el('button', 'cm-co', g.get(y) || y);
-              ((t.type = 'button'), (t.dataset.openIso = y), v.append(t), w.length && v.append(' · '));
+              ((t.type = 'button'), (t.dataset.openIso = y), v.append(t));
             }
-            (v.append(w.join(' · ')),
-              ['City', 'Category'].forEach((t) => {
-                if (editable(t)) {
-                  const e = fieldEditBtn(t, u.get(t), dash.params().cid, u.get('Name') || 'company');
-                  ((e.textContent = `✎ ${t.toLowerCase()}`), v.append(e));
-                }
+            (['City', 'Category'].forEach((t) => { // the value with a small ✎ next to it; “＋ city” when it's missing
+                const val = u.get(t) ? String(u.get(t)).replace(/\n/g, ', ') : ''; if (val) { v.childNodes.length && v.append(' · '); v.append(val); }
+                if (editable(t)) { const e = fieldEditBtn(t, u.get(t), dash.params().cid, u.get('Name') || 'company'); if (!val) { e.textContent = `＋ ${t.toLowerCase()}`; e.classList.add('cm-edadd'); } v.append(e); }
               }),
               ['City', 'Category', 'Country'].forEach((t) => m.add(t)));
             { const ad = String(u.get('Address') || '').trim(); if (ad && ad !== '0') { const t = el('div', 'cm-caddr', `📍 ${ad.replace(/\n/g, ', ')}`); v.append(t); } }
@@ -5145,8 +5125,8 @@ onData(() => {
               : 'ok' !== U.status || U.data.length
                 ? (window.__cm2 ? window.__cm2.actView('ok' === U.status ? U.data : [], W) : 'ok' === U.status ? U.data : []).forEach((t) => {
                     const e = `id=${enc(t.id)}`,
-                      n = el('div', 'cm-ev');
-                    { const ic = el('span', 'cm-evi'); const sv = { call: ICON_TEL, chat: ICON_WA, email: ICON_MAIL }[t.type]; sv ? (ic.innerHTML = sv) : (ic.textContent = { comment: '📝', calendar: '📅', campaign_email: '📣' }[t.type] || '•'); ic.title = z[t.type] || t.type; n.append(ic); }
+                      n = el('div', `cm-ev t-${t.type}${'chat' === t.type && 'NOT_REPLIED' === t.chat_status ? ' wait' : ''}`);
+                    { const ic = el('span', 'cm-evi'); const sv = 'chat' === t.type && window.__cm2 && window.__cm2.chatLogo ? window.__cm2.chatLogo(t) : { call: ICON_TEL, chat: ICON_WA, email: ICON_MAIL }[t.type]; sv ? (ic.innerHTML = sv) : (ic.textContent = { comment: '📝', calendar: '📅', campaign_email: '📣' }[t.type] || '•'); ic.title = z[t.type] || t.type; n.append(ic); }
                     (n.append(
                       mark(el('span', 'et', t.title || z[t.type] || t.type), 'company_timeline', 'title', e),
                     ),
@@ -5155,7 +5135,7 @@ onData(() => {
                           el(
                             'span',
                             'em',
-                            `${(() => { const d = agoDays(t.time); return null == d ? '' : 0 === d ? 'today' : 1 === d ? 'yesterday' : d < 30 ? `${d} days ago` : d3.utcFormat('%b %-d, %Y')(new Date(t.time)); })()}${t.by ? ` · ${t.by}` : ''}${t.replies ? ` · ${t.replies} replies` : ''}`,
+                            `${(() => { const d = agoDays(t.time); return null == d ? '' : d < 0 ? (-1 === d ? 'tomorrow' : `in ${-d} days`) : 0 === d ? 'today' : 1 === d ? 'yesterday' : d < 30 ? `${d} days ago` : d3.utcFormat('%b %-d, %Y')(new Date(t.time)); })()}${t.by ? ` · ${t.by}` : ''}${t.replies ? ` · ${t.replies} replies` : ''}`,
                           ),
                           'company_timeline',
                           'time',
@@ -5163,7 +5143,11 @@ onData(() => {
                         ),
                       ),
                       t.detail && n.append(mark(el('span', 'ed', t.detail), 'company_timeline', 'detail', e)),
-                      'chat' === t.type &&
+                      ('call' === t.type || 'comment' === t.type) && window.__cm2 && window.__cm2.actEdit && (() => { const b = window.__cm2.actEdit(t); b && n.append(b); })(),
+                      ('email' === t.type || ('campaign_email' === t.type && t.replies)) && window.__cm3 && window.__cm3.mailActs && n.append(window.__cm3.mailActs(t)),
+                      'chat' === t.type && window.__cm2 && window.__cm2.chatActs
+                        ? n.append(window.__cm2.chatActs(t))
+                        : 'chat' === t.type &&
                         (() => {
                           const bits = [];
                           (t.chat_msgs && bits.push(`${t.chat_msgs} message${1 === t.chat_msgs ? '' : 's'}`),
@@ -5296,7 +5280,7 @@ onData(() => {
                           f.append(e));
                       }));
                 })()
-              : drawCountry());
+              : 'country' === curView() ? drawCountry() : null); // the country page only draws when it's the page on screen (Home, Trips and Congresses no longer load its data)
 });
 const NH_FOLDER = '6682e9b8b6386800f586c0b2',
   cap = (t) => (window.claude && 'function' == typeof window.claude.use ? window.claude.use(t).catch(() => null) : Promise.resolve(null)),
@@ -6969,6 +6953,7 @@ async function saveViews(t) {
   }
   sheetDraw && sheetDraw();
 }
+let moreAcct = [];
 function drawMore(t) {
   {
     const n = rowsOf('maps_places'),
@@ -6992,7 +6977,8 @@ function drawMore(t) {
       (window.__cm2 && window.__cm2.moreItems ? window.__cm2.moreItems() : []).forEach((x) => todo.push(x));
       todo.push(['🔎 Find contacts written in comments', (ev) => window.__cm2.openCommentContacts(ev.currentTarget)]);
       'country' === curView() && todo.push(['🔗 Check related companies (same phone, domain or people)', (ev) => window.__cm2.openRelatedCheck(ev.currentTarget)]);
-      if (todo.length) { t.append(el('div', 'k', 'To do')); todo.forEach(([l, f]) => { const b = el('button', 'cm-btn ghost', l); b.type = 'button'; b.style.margin = '6px 6px 0'; b.addEventListener('click', f); t.append(b); }); }
+      todo.push(['🧹 Data quality for this country', (ev) => openSheet(ev.currentTarget, 'Data quality', drawQuality, { wide: !0 })]);
+      moreAcct = window.__cm3 && window.__cm3.moreTiles ? window.__cm3.moreTiles(t, todo) : (todo.forEach(([l, f]) => { const b0 = el('button', 'cm-btn ghost', l); b0.type = 'button'; b0.addEventListener('click', f); t.append(b0); }), []);
     }
     if (n.length > mapsSavedCount) {
       const o = el('button', 'cm-btn ghost', `📍 Save ${fmt(n.length - mapsSavedCount)} new checked Google Maps links to NetHunt`);
@@ -7018,13 +7004,6 @@ function drawMore(t) {
         }),
         t.append(o));
     }
-  }
-  {
-    const e = el('button', 'cm-btn ghost', '🧹 Data quality for this country');
-    ((e.type = 'button'),
-      (e.style.margin = '10px 6px 0'),
-      e.addEventListener('click', () => openSheet(e, 'Data quality', drawQuality, { wide: !0 })),
-      t.append(e));
   }
   t.append(el('div', 'grp', 'This view'));
   const n = el('div', 'cm-chips');
@@ -7187,7 +7166,7 @@ function drawMore(t) {
     t.append(f));
 }
 (qs('.cm-tb-more').addEventListener('click', (t) => {
-  (openSheet(t.currentTarget, 'Views, links & data', drawMore),
+  (openSheet(t.currentTarget, 'Menu', (b) => { drawMore(b); window.__cm3 && window.__cm3.tidyMore && window.__cm3.tidyMore(b, moreAcct); }, { wide: !0 }),
     (async function () {
       if (viewsDoc) return;
       const t = await cap('db'),
@@ -8076,7 +8055,7 @@ function prepBtn(t, e) {
 const officeOpenCache = new Map(); setInterval(() => officeOpenCache.clear(), 60e3); // per country, worked out once a minute
 let todayMemo = { key: '', at: 0, val: null };
 function todayData() {
-  const key = [oursKey(), dash.params().iso, ...['companies', 'pipeline_stages', 'calendar_events', 'meeting_links', 'medint_ignore'].map((n) => { const d = dash.data(n); return `${d.status}:${(d.data || []).length}`; }), dash.params().ign].join('|');
+  const key = [oursKey(), dash.params().iso, ...[...('country' === curView() ? ['companies'] : []), 'pipeline_stages', 'calendar_events', 'meeting_links', 'medint_ignore'].map((n) => { const d = dash.data(n); return `${d.status}:${(d.data || []).length}`; }), dash.params().ign].join('|');
   if (todayMemo.key === key && Date.now() - todayMemo.at < 15e3) return todayMemo.val;
   const val = todayData0(); todayMemo = { key, at: Date.now(), val }; return val;
 }
@@ -8084,7 +8063,7 @@ function todayData0() {
   const t = localISO(),
     e = oursKey(),
     n = OURS[e].all ? 'all' : e,
-    a = new Map(rowsOf('companies').map((t) => [t.id, t])),
+    a = new Map(('country' === curView() ? rowsOf('companies') : []).map((t) => [t.id, t])), // live follow-ups of the open country; the pipeline covers the rest
     o = rowsOf('pipeline_stages').map((t) =>
       a.has(t.id) ? { ...t, next_followup: a.get(t.id).next_followup, next_step: a.get(t.id).next_step } : t,
     ),
@@ -8556,7 +8535,7 @@ onData(() => {
   const s = dash.data('recent_changes'),
     r = 'ok' === s.status ? s.data.filter((t) => 'down' !== t.kind).length : 0;
   qs('.cm-tb-new .cm-badge').textContent = r ? (r > 99 ? '99+' : String(r)) : '';
-  const i = dash.params().iso,
+  const i = 'country' === curView() ? dash.params().iso : null, // only the country page shows this count
     c =
       i && 'ok' === dash.data('tender_awards').status && 'ok' === dash.data('registrations').status
         ? leadsFor(i).filter((t) => !['added', 'exists'].includes(leadState.get(t.key))).length
@@ -9051,8 +9030,14 @@ window.__cm = Object.defineProperties({ flush: () => { onDataReady = !0; pending
   nhErr: { get: () => nhErr },
   ICON_TEL: { get: () => ICON_TEL },
   ICON_WA: { get: () => ICON_WA },
+  markNoWa: { get: () => markNoWa },
+  unmarkNoWa: { get: () => unmarkNoWa },
+  isNoWa: { get: () => isNoWa },
+  noWaList: { get: () => [...noWaNums] },
+  ICON_LI: { get: () => ICON_LI },
   ICON_MAIL: { get: () => ICON_MAIL },
   rowsOf: { get: () => rowsOf },
+  isPerson: { get: () => isPerson },
   countryOfIso: { get: () => countryOfIso },
   isoOfCountry: { get: () => isoOfCountry },
   norm: { get: () => norm },

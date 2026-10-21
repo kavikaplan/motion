@@ -1,5 +1,6 @@
 // Part 2 of the dashboard (scripts run in separate scopes here: shared names come through window.__cm)
 const __cm = window.__cm;
+const SEQ_ON = !1; // 🔁 follow-up sequences are switched off for now — Medint stays focused on sales work (set to !0 to bring them back)
 let tripStops = [],
   tripView = null;
 const STAGE_COL = ['#8a8a8a', '#9b9b9b', '#4C8DF6', '#3FB6C6', '#D9A02B', '#E0703A', '#3fae7a'];
@@ -840,7 +841,7 @@ function drawTripMap(t) {
 // Left out: not ortho, already partners, not interested / lost, and anyone we contacted in the last 2 days (unless they wrote or a follow-up is due).
 const PH_TARGET = 25; // one session ≈ an hour at 2–3 minutes per company
 const PH_POOL = 200; // the full ordered list; sessions take 25 at a time
-const PH_WHY = ['They wrote — reply', 'Meeting soon — confirm & prepare', 'Follow-up due', 'Interested, gone quiet — call now', 'Engaged, gone quiet', 'Best new lead', 'Keep warm', 'This company', 'Contacted recently — keep going'];
+const PH_WHY = ['They wrote — reply', 'Meeting soon — confirm & prepare', 'Follow-up due', 'Interested, gone quiet — call now', 'Engaged, gone quiet', 'Best new lead', 'Keep warm', 'This company', 'Contacted recently — keep going', 'Manufacturing branch — last', 'Unprocessed — last'];
 const phWorked = new Set(); // companies done or skipped in this session: the next Power hour continues after them
 // meetings as Google Calendar has them now (follows reschedules), linked to companies where Medint knows the link
 function googleMeetings() { const C = __cm; const cal = dash.data('calendar_events'); if ('ok' !== cal.status) return []; const linked = new Map(); C.rowsOf('meetings').forEach((m) => m.event_id && linked.set(m.event_id, m.company_id)); C.rowsOf('meeting_links').filter((m) => m.action === 'link').forEach((m) => linked.set(m.event_id, m.company_id)); return cal.data.filter((e) => !e.all_day && e.start && linked.get(e.id)).map((e) => ({ company_id: linked.get(e.id), start: e.start, summary: e.summary })); }
@@ -866,22 +867,39 @@ setInterval(() => { if (ignMigrated) return; const d = dash.data('medint_ignore'
   Object.entries(mine).forEach(([id, x]) => { if (!ignRows().has(id) && (!x.until || x.until >= new Date().toISOString().slice(0, 10))) setIgnore(id, x.until ? Math.max(1, Math.round((new Date(x.until) - Date.now()) / 864e5)) : 0, x.name); }); __cm.ignoredCos = {}; }, 4000);
 function ignoreBtn(id, name, after) { const b = __cm.el('button', 'cm-mini', isIgnored(id) ? '🙈 Ignored — show again' : '🙈 Ignore'); b.type = 'button'; b.title = 'Hide this company for everyone from Home, Today, Power hour and Hot companies'; { const r = ignRows().get(id); if (r && isIgnored(id)) b.title = `Ignored by ${r.by || 'someone'}${r.until ? ` until ${r.until}` : ''} — tap to show it again for everyone`; }
   b.addEventListener('click', (ev) => { ev.stopPropagation(); if (isIgnored(id)) return setIgnore(id, null, name); const go = (d) => () => { setIgnore(id, d, name); after && after(); }; __cm.openMenu(b, [{ icon: '🗓', label: 'For 1 month', act: go(30) }, { icon: '🗓', label: 'For 3 months', act: go(91) }, { icon: '🙈', label: 'Until I change it', act: go(0) }]); }); return b; }
+let phFull = []; // the full Power hour order behind the current session (Best partners “Do next” uses it)
+let phIdx = { src: null, m: new Map() }; const phMap = () => { powerQueue(); if (phIdx.src !== phFull) phIdx = { src: phFull, m: new Map(phFull.map((x, k) => [x.id, [k, x]])) }; return phIdx.m; };
+// can we reach them? true = a phone, WhatsApp or email is known · false = we know there is none · null = not known yet (decided when Power hour opens it)
+function reachable(id, co) { const C = __cm; const rc = C.realContact(id); if (rc && /chat|email|call/.test(rc.type || '')) return !0; const c = (co && co.get(id)) || C.rowsOf('companies').find((x) => x.id === id);
+  if (c) return !!(String(c.phones || '').replace(/\D/g, '').length >= 7 || /@/.test(String(c.emails || '')) || Number(c.people) > 0); return null; }
+function phRank(id) { const v = phMap().get(id); return v ? v[0] : 1e6; }
+function phItem(id) { const v = phMap().get(id); return v ? v[1] : null; }
 const tzCache = new Map(); setInterval(() => tzCache.clear(), 5 * 60e3); // office hours per country, worked out once every 5 minutes
 let pqMemo = { key: '', at: 0, val: null };
+// Next Shoulder already has a distributor here (Distribütor Listesi, 2025) — People don't get these companies for Next outreach; House still sees them
+const NEXT_DIST = new Set(['LY', 'MA', 'LB', 'MX', 'AZ', 'EG', 'IR', 'MY', 'BR', 'UZ', 'RU', 'IQ', 'MV', 'UG', 'CO', 'PH', 'PL', 'PK', 'AR', 'SA', 'LK', 'GR', 'JO', 'CN', 'YE', 'MD', 'IT', 'PE', 'ID', 'PR', 'NI', 'UA', 'MU', 'PT']);
+const NEXT_DIST_INFO = { LY: 'Titanium Medical · no contract', MA: 'ABC Syntese · exclusive (3 yrs)', LB: 'ZN-Medical Group · non-exclusive', MX: 'Intra/ICON · exclusive (5 yrs)', AZ: 'Med Line Group · non-exclusive', EG: 'ProMed · exclusive (5 yrs)', IR: 'Yasna Teb Zagros (ASA Group) · exclusive (5 yrs)', MY: 'Arah Tenang Sdn Bhd · exclusive (3 yrs)', BR: 'VOX Medical · exclusive (5 yrs)', UZ: 'PharmMed LLC · exclusive (3 yrs)', RU: 'CMT · exclusive (5 yrs)', IQ: 'Zahra · exclusive for Baghdad & Kirkuk (3 yrs)', MV: 'ADK Trade and Shipping · no contract', UG: 'IK Medical · no contract', CO: 'NAO Medical · exclusive (5 yrs)', PH: 'BJ Medical · exclusive (3 yrs)', PL: 'MASS Medica · exclusive (3 yrs)', PK: 'Rech International · exclusive (5 yrs)', AR: 'Osteolife SRL · contract in progress', SA: 'Golden Future Care · exclusive (5 yrs)', LK: 'Cileda Surgical · exclusive (3 yrs)', GR: 'Lanomer · contract in progress', JO: 'Panorama Medical · contract in progress', CN: 'Guorun Medical · Lecheng, Hainan', YE: 'Dr. Adel', MD: 'Triumf Motive', IT: 'RHS Medical SRL', PE: 'Grupo 24', ID: 'PT Bina Artha Semesta', PR: 'Medison Ortho Inc.', NI: 'Implornorte', UA: 'Bauers Synthes · Implant Style', MU: 'Vikram', PT: 'Criomove' };
+function nextInfo(iso) { if (!iso || !nextDist().has(iso)) return null; return { iso, who: ((__cm.uiFlags || {}).nextDistInfo || {})[iso] || NEXT_DIST_INFO[iso] || 'Next Shoulder distributor' }; }
+function nextTag(iso, small) { const n = nextInfo(iso); if (!n) return null; const t = __cm.el('div', `cm-nexttag${small ? ' sm' : ''}`); t.append(__cm.el('b', null, '🔴 Next already in market'), __cm.el('span', null, ` · ${n.who}`)); t.title = isHouse() ? 'Next Shoulder already has a distributor here — People don’t get these companies for Next outreach' : 'Next Shoulder already has a distributor in this country'; return t; }
+const nextDist = () => { const o = (__cm.uiFlags || {}).nextDistIsos; return Array.isArray(o) && o.length ? new Set(o) : NEXT_DIST; };
+function nextHide(iso, brand, id) { if (isHouse() || !iso || !nextDist().has(iso)) return !1; if (brand === 'next') return !0; if (brand === 'dunitech' || brand === 'motion') return !1; return bestBrand(id, null, 'next') === 'next'; }
 function powerQueue() {
-  const C0 = __cm; const key = [C0.curView(), C0.oursKey(), dash.params().iso, dash.params().pcity, dash.params().phfor, C0.rowsOf('partners').length, C0.rowsOf('pipeline_stages').length, dash.data('contact_history').status, (dash.data('contact_history').data || []).length, dash.data('calendar_events').status, phWorked.size, dash.params().ign].join('|');
+  const C0 = __cm; const key = [C0.curView(), C0.oursKey(), dash.params().iso, dash.params().pcity, dash.params().phfor, dash.params().pfit, dash.params().phide, dash.params().asg, phMode, phNoReach.size, (C0.curView() === 'country' ? C0.rowsOf('partners').length : 0), C0.rowsOf('pipeline_stages').length, dash.data('contact_history').status, (dash.data('contact_history').data || []).length, dash.data('calendar_events').status, phWorked.size, dash.params().ign].join('|');
   if (pqMemo.key === key && Date.now() - pqMemo.at < 20e3) return pqMemo.val; // the same answer for 20 s: Home and Power hour don't recompute it on every redraw
-  const val = powerQueue0(); pqMemo = { key, at: Date.now(), val }; return val;
+  const val = powerQueue0(); if (val && Array.isArray(val.list) && !isHouse()) { const isoOf = (x) => x.iso || ((__cm.companyById && __cm.companyById(x.id)) || {}).iso || (C0.curView() === 'country' ? dash.params().iso : ''); val.list = val.list.filter((x) => !nextHide(isoOf(x), val.key, x.id)); } pqMemo = { key, at: Date.now(), val }; return val;
 }
 function powerQueue0() {
   const C = __cm; const k = C.oursKey(); const key = C.OURS[k].all ? 'next' : k; const today = new Date().toISOString().slice(0, 10); const now = Date.now();
-  const co = new Map(C.rowsOf('companies').map((c) => [c.id, c])); const pst = new Map(C.rowsOf('pipeline_stages').map((r) => [r.id, r]));
+  const co = new Map(C.curView() === 'country' ? C.rowsOf('companies').map((c) => [c.id, c]) : []); /* the country's companies only matter on its page */ const pst = new Map(C.rowsOf('pipeline_stages').map((r) => [r.id, r]));
   const ch = dash.data('contact_history'); const soonMeet = new Map(); const gm = googleMeetings(); const gCos = new Set(gm.map((m) => m.company_id));
   gm.forEach((m) => { const d = (new Date(m.start) - now) / 864e5; if (d >= -0.1 && d <= 2 && (!soonMeet.has(m.company_id) || soonMeet.get(m.company_id) > d)) soonMeet.set(m.company_id, d); });
   ('ok' === ch.status ? ch.data : []).forEach((e) => { if (e.type !== 'calendar' || gCos.has(e.record_id)) return; const d = (new Date(e.time) - now) / 864e5; if (d >= -0.1 && d <= 2) soonMeet.set(e.record_id, d); });
   const tzOpen = (iso) => { if (tzCache.has(iso)) return tzCache.get(iso); const v = tzOpen0(iso); tzCache.set(iso, v); return v; }; const tzOpen0 = (iso) => { const z = C.TZ[iso]; if (!z) return 0; try { const h = Number(new Intl.DateTimeFormat('en-GB', { timeZone: z, hour: '2-digit', hour12: !1 }).format(new Date())); const wd = new Intl.DateTimeFormat('en-GB', { timeZone: z, weekday: 'short' }).format(new Date()); return !/Sat|Sun/.test(wd) && h >= 9 && h < 18 ? 1 : 0; } catch { return 0; } };
-  const lost = (st) => /not interested|lost|rejected|no fit|closed/i.test(String(st || ''));
-  const tierOf = (id, stage, status, score, nf) => {
+  const lost = (st) => /not interested|lost|rejected|no fit|not a fit|closed|doctor|surgeon|hospital|no info/i.test(String(st || '')); // never in Power hour
+  // statuses that mean “not now”: Nurture (long-term, light touch) and Drip (an email sequence is already running) — they only come in when they wrote, a meeting is near, a follow-up is due, or (Nurture) after 90 quiet days
+  const parked = (st) => /nurtur|exploring market entry/i.test(String(st || '')); // Nurturing and Exploring Market Entry: only when they wrote and are waiting for our answer
+  const tierOf = (id, stage, status, score, nf) => { if (lost(status)) return -1; if (phMode === 'enrich') { const t0 = tierOf0(id, stage, status, score, nf); return t0 < 0 ? 5 : t0; } const t0 = tierOf0(id, stage, status, score, nf); if (!parked(status)) return t0; return t0 === 0 ? 0 : -1; };
+  const tierOf0 = (id, stage, status, score, nf) => {
     const rc = C.realContact(id); const days = rc ? rc.days : null;
     if (rc && rc.pending) return 0;
     if (soonMeet.has(id)) return 1;
@@ -897,13 +915,14 @@ function powerQueue0() {
   const items = [];
   if (C.curView() === 'country') {
     const c0 = dash.params().pcity; const city = c0 && C.rowsOf('partners').some((r) => C.norm(String(r.city || '').split(',')[0].trim()) === C.norm(c0)) ? c0 : null; // ignore a city from another country
-    C.rowsOf('partners').filter((r) => r.ortho_verdict !== 'not_ortho' && (!city || C.norm(String(r.city || '').split(',')[0].trim()) === C.norm(city))).forEach((r) => {
+    const P = dash.params(); const fitOk = (r) => (P.pfit !== 'fit' || (r[`seg_brands_${key}`] || 0) > 0) && (key === 'motion' || r.cat_ok || r.ortho_rel || (r[`score_${key}`] || 0) >= 60 || (r[`stage_${key}`] || 0) >= 3 || (C.realContact(r.id) || {}).pending); /* Next & Dunitech: Ortho / Customer companies (others only if ortho-related or a high score) */ const ppOk = (r) => !(P.phide && C.isPerson && C.isPerson(r.company)); const asOk = (r) => passAssign(r.id); // the same filters as Best partners
+    C.rowsOf('partners').filter((r) => r.ortho_verdict !== 'not_ortho' && fitOk(r) && ppOk(r) && asOk(r) && (!city || C.norm(String(r.city || '').split(',')[0].trim()) === C.norm(city))).forEach((r) => {
       const c = co.get(r.id) || {}; const score = r[`score_${key}`] ?? r.score_all; const t = tierOf(r.id, r[`stage_${key}`] || 0, r[`status_${key}`], score, c.next_followup);
       if (t >= 0) items.push({ id: r.id, name: r.company, city: r.city, iso: dash.params().iso, status: r[`status_${key}`], score, line_names: r.line_names, t, open: tzOpen(dash.params().iso), due: c.next_followup || '' });
     });
     // a Power hour is ~25 calls: when the urgent groups are short, add the best remaining companies (new leads first, then keep warm)
     if (items.length < PH_POOL) { const have = new Set(items.map((x) => x.id));
-      C.rowsOf('partners').filter((r) => !have.has(r.id) && r.ortho_verdict !== 'not_ortho' && !isIgnored(r.id) && (!city || C.norm(String(r.city || '').split(',')[0].trim()) === C.norm(city)) && (r[`stage_${key}`] || 0) < 6 && !lost(r[`status_${key}`]))
+      C.rowsOf('partners').filter((r) => !have.has(r.id) && r.ortho_verdict !== 'not_ortho' && !isIgnored(r.id) && !parked(r[`status_${key}`]) && fitOk(r) && ppOk(r) && asOk(r) && (!city || C.norm(String(r.city || '').split(',')[0].trim()) === C.norm(city)) && (r[`stage_${key}`] || 0) < 6 && !lost(r[`status_${key}`]))
         .map((r) => { const rc = C.realContact(r.id); return { r, rc, score: r[`score_${key}`] ?? r.score_all ?? 0 }; })
         .sort((x, y) => (!x.rc ? 0 : 1) - (!y.rc ? 0 : 1) || y.score - x.score).slice(0, PH_POOL - items.length)
         .forEach(({ r, rc, score }) => items.push({ id: r.id, name: r.company, city: r.city, iso: dash.params().iso, status: r[`status_${key}`], score, line_names: r.line_names, t: !rc ? 5 : rc.days != null && rc.days < 7 ? 8 : 6, open: tzOpen(dash.params().iso), due: '' })); }
@@ -913,12 +932,19 @@ function powerQueue0() {
     ids.forEach((id) => { const p = pst.get(id) || {}; const name = p.company || (C.companyById(id) || {}).company; if (!name) return; const t = tierOf(id, p[`stage_${key}`] || 0, p[`status_${key}`], null, p.next_followup);
       if (t >= 0 && t <= 4) items.push({ id, name, city: p.city, iso: p.iso, status: p[`status_${key}`] || p.status_all, score: (p[`stage_${key}`] || 0) * 10, t, open: tzOpen(p.iso), due: p.next_followup || '' }); });
     if (items.length < PH_POOL) { const have = new Set(items.map((x) => x.id)); const iv = new Map(C.rowsOf('import_values').map((x) => [x.id, x.weighted_value_usd || x.import_value_usd || 0]));
-      const pool = [...pst.values()].filter((p) => p.company && !have.has(p.id) && !isIgnored(p.id) && (p[`stage_${key}`] || 0) < 6 && !lost(p[`status_${key}`]))
+      const pool = [...pst.values()].filter((p) => p.company && !have.has(p.id) && !isIgnored(p.id) && !parked(p[`status_${key}`]) && (key === 'motion' || /^(ortho|customers?)$/i.test(String(p.category || '').trim()) || (p[`stage_${key}`] || 0) >= 3) && (p[`stage_${key}`] || 0) < 6 && !lost(p[`status_${key}`]))
         .map((p) => ({ p, rc: C.realContact(p.id), v: iv.get(p.id) || 0, st: p[`stage_${key}`] || 0 }));
       const fresh = pool.filter(({ rc, st, v }) => rc === null && st < 3 && v > 0).sort((x, y) => y.v - x.v); const warm = pool.filter(({ rc, st }) => rc && rc.days >= 7 && st >= 2).sort((x, y) => (x.rc.days < 30) - (y.rc.days < 30) || y.st - x.st || y.v - x.v); const recent = pool.filter(({ rc, st }) => rc && rc.days < 7 && st >= 2 && st < 6).sort((x, y) => y.st - x.st);
-      [...fresh.slice(0, Math.ceil((PH_POOL - items.length) * 0.6)).map((x) => ({ ...x, t: 5 })), ...warm.map((x) => ({ ...x, t: 6 })), ...recent.map((x) => ({ ...x, t: 8 }))].slice(0, PH_POOL - items.length)
+      const picked = new Set([...fresh, ...warm, ...recent].map((x) => x.p.id)); // anything left (never contacted, no import data yet) still makes a full session: furthest along first, then those with a phone or email
+      const rest = pool.filter((x) => !picked.has(x.p.id)).sort((x, y) => y.st - x.st || (x.rc === null ? 0 : 1) - (y.rc === null ? 0 : 1) || y.v - x.v || String(x.p.company).localeCompare(String(y.p.company)));
+      [...fresh.slice(0, Math.ceil((PH_POOL - items.length) * 0.6)).map((x) => ({ ...x, t: 5 })), ...warm.map((x) => ({ ...x, t: 6 })), ...fresh.slice(Math.ceil((PH_POOL - items.length) * 0.6)).map((x) => ({ ...x, t: 5 })), ...rest.map((x) => ({ ...x, t: x.rc === null ? 5 : 6 })), ...recent.map((x) => ({ ...x, t: 8 }))].slice(0, PH_POOL - items.length)
         .forEach(({ p, v, t }) => items.push({ id: p.id, name: p.company, city: p.city, iso: p.iso, status: p[`status_${key}`] || p.status_all, score: Math.min(99, Math.round(Math.log10(1 + v) * 10)), t, open: tzOpen(p.iso), due: '' })); }
   }
+  if (window.__m3 && SEQ_ON) { const today2 = isoDay(Date.now()); const have = new Map(items.map((x) => [x.id, x])); seqDue().forEach(({ s, st }) => { if (C.curView() === 'country' && s.d.iso !== dash.params().iso) return; const ex = have.get(s.cid); const seq = { i: st.i, n: (s.d.steps || []).length, ch: st.step[1], due: st.due, lang: s.d.lang };
+    if (ex) { ex.seq = seq; if (ex.t > 2) ex.t = 2; ex.due = st.due; } else { const p = pst.get(s.cid) || {}; items.push({ id: s.cid, name: s.d.company || p.company || 'Company', city: p.city, iso: s.d.iso || p.iso, status: p[`status_${key}`] || p.status_all, score: 0, t: 2, open: tzOpen(s.d.iso || p.iso), due: st.due || today2, seq }); } }); }
+  items.forEach((x) => { if (x.t !== 0 && /manufacturing branch/i.test(String(x.status || ''))) x.t = 9; if (x.t !== 0 && /unprocessed/i.test(String(x.status || ''))) x.t = 10; }); // manufacturers' branches, then unprocessed: at the very end (unless they wrote)
+  { const ready = (x) => reachable(x.id, co); const enr = new Set([...phNoReach, ...((C.uiFlags || {}).enrichIds || [])].filter((id) => reachable(id, co) !== !0)); // once a number or email is added they leave the Enrich list // 🔎 Enrich queue: no phone, WhatsApp or email yet — Power hour: only the ones you can call or write to
+    if (phMode === 'enrich') { const L = items.filter((x) => x.t !== 0 && (enr.has(x.id) || ready(x) === !1)); items.length = 0; items.push(...L); } else { const L = items.filter((x) => x.t === 0 || (!enr.has(x.id) && ready(x) !== !1)); items.length = 0; items.push(...L); } }
   const rcT = (id) => { const rc = C.realContact(id); return rc ? +new Date(rc.time) : 0; };
   items.sort((a, b) => a.t - b.t
     || (a.t === 0 ? rcT(a.id) - rcT(b.id) : 0) // longest-waiting reply first
@@ -928,7 +954,7 @@ function powerQueue0() {
     || (b.score || 0) - (a.score || 0));
   const pf = isHouse() ? phFor() : ''; if (pf) dash.data('medint_assign');
   const seen = new Set(); const list = items.filter((x) => !seen.has(x.id) && seen.add(x.id) && !isIgnored(x.id) && (!pf || (pf === '-' ? !assigneeOf(x.id) : assigneeOf(x.id) === pf)));
-  const rest = list.filter((x) => !phWorked.has(x.id)); return { list: rest.slice(0, PH_TARGET), label: PH_WHY, key, total: rest.length };
+  const rest = list.filter((x) => !phWorked.has(x.id)); phFull = list; return { list: rest.slice(0, PH_TARGET), label: PH_WHY, key, total: rest.length };
 }
 function guessLang(text, fallback) {
   const t = ` ${String(text || '').toLowerCase()} `;
@@ -967,19 +993,28 @@ function replyDraft(it, rc, person, lang, brand, force) {
   else if (parts.length === 1) parts.push(S.gen);
   return `${parts.join('\n\n')}\n\n${S.bye}`;
 }
-function openPowerHour(anchor, focusId) {
+// the brand this company is furthest along with — Power hour shows and edits that status (e.g. Next Shoulder for Bimar, Dunitech for Medifor)
+const stageGuess = (v) => { const t = low(String(v || '').trim()); if (!t) return 0; if (/lost|not interested|no fit|not a fit|rejected|closed/.test(t)) return 0; if (/signed|order|purchas|customer|partner|distributo|exclusive|\bwon\b/.test(t)) return 6; if (/contract|sign|negotiat|proposal|quot|offer|price|registration|agreement|tender/.test(t)) return 5; if (/meeting|interest|promis|qualif|explor|demo|visit|sample|present/.test(t)) return 4; if (/repl|engag|follow|nurtur|await|respon/.test(t)) return 3; if (/contact|call|drip|\bwa\b|sent|email/.test(t)) return 2; return 1; };
+function bestBrand(id, F, key) { const C = __cm; const pr = (C.curView() === 'country' ? C.rowsOf('partners') : []).find((r) => r.id === id) || C.rowsOf('pipeline_stages').find((r) => r.id === id) || {};
+  return ['next', 'dunitech', 'motion'].map((b) => [b, Math.max(pr[`stage_${b}`] || 0, F && F.get ? stageGuess(F.get(C.STATUS_FIELD[b])) : 0)]).sort((x, y) => y[1] - x[1] || (x[0] === key ? -1 : y[0] === key ? 1 : 0))[0][0]; }
+let phUndo = null; // the company you just skipped (↶ Undo for 5 seconds)
+let phMode = ''; // '' = Power hour (ready to call) · 'enrich' = 🔎 Enrich queue (find numbers and emails)
+const phNoReach = new Set(); // seen in Power hour with no phone, WhatsApp or email
+const tlSeen = new Set(); // companies whose activity was re-read in this session
+function openEnrich(anchor) { phMode = 'enrich'; pqMemo.key = ''; openPowerHour(anchor, null, 'enrich'); }
+function openPowerHour(anchor, focusId, mode) { if (mode !== 'enrich') phMode = ''; pqMemo.key = '';
   const C = __cm; const el = C.el;
   { const sh = document.getElementById('cm-sheet'); const t = (document.getElementById('cm-sheet-title') || {}).textContent || ''; if (sh && !sh.hidden) { if (/^⚡/.test(t) && !focusId) return; C.closeSheet(); } } /* another pop-up open (Log, daily question…) → replace it; Power hour already open → keep it */
   let { list: queue, label: why, key } = powerQueue(); let i = 0; const done = [];
-  if (focusId) { const r = C.rowsOf('partners').find((x) => x.id === focusId) || {}; const p = C.rowsOf('pipeline_stages').find((x) => x.id === focusId) || C.companyById(focusId) || {};
+  if (focusId) { const r = (C.curView() === 'country' || C.curView() === 'company' ? C.rowsOf('partners') : []).find((x) => x.id === focusId) || {}; const p = C.rowsOf('pipeline_stages').find((x) => x.id === focusId) || C.companyById(focusId) || {};
     const it0 = queue.find((x) => x.id === focusId) || { id: focusId, name: r.company || p.company || 'Company', city: r.city || p.city, iso: p.iso || dash.params().iso, status: r[`status_${key}`] || p[`status_${key}`], score: r[`score_${key}`] ?? r.score_all, line_names: r.line_names, t: 7 };
     queue = [it0, ...queue.filter((x) => x.id !== focusId)]; }
   const scope = C.curView() === 'country' ? ((C.multiIsos() ? (dash.params().glabel || 'these countries') : (C.countryOfIso(dash.params().iso) || {}).country) + (dash.params().pcity && C.rowsOf('partners').some((r) => C.norm(String(r.city || '').split(',')[0].trim()) === C.norm(dash.params().pcity)) ? ` · ${dash.params().pcity}` : '')) : 'all countries';
-  const focus = () => { const it = queue[i]; if (it && dash.params().cid !== it.id) dash.setParams({ cid: it.id }); it && (miCtx = it.id); dash.data('company_timeline'); }; // loads this company's people, brands and numbers
+  const focus = () => { const it = queue[i]; if (it && dash.params().cid !== it.id) dash.setParams({ cid: it.id }); it && (miCtx = it.id); dash.data('company_timeline'); if (it && !tlSeen.has(it.id)) { tlSeen.add(it.id); setTimeout(() => { if (dash.params().cid === it.id) dash.refresh('company_timeline'); }, 50); } }; // loads this company's people, brands and numbers
   focus();
-  C.openSheet(anchor, `⚡ Power hour · ${scope}`, (body) => {
+  C.openSheet(anchor, `${phMode === 'enrich' ? '🔎 Enrich' : '⚡ Power hour'} · ${scope}`, (body) => {
     if (!queue.length) { body.append(el('div', 'hint', 'Nothing to work on right now — no replies waiting, no follow-ups due.')); if (isHouse()) { const fr = el('div', 'cm-chips'); [['', 'Everyone'], ['-', 'Unassigned'], ...miPeople().filter((p) => p.active).map((p) => [p.name, p.name])].forEach(([v, l]) => { const b = el('button', 'cm-chip', l); b.type = 'button'; b.setAttribute('aria-pressed', String(phFor() === v)); b.addEventListener('click', () => { dash.setParams({ phfor: v || null }); ({ list: queue } = powerQueue()); i = 0; focus(); C.sheetDraw(); }); fr.append(b); }); body.append(fr); } return; }
-    if (i >= queue.length) { const ttl = document.getElementById('cm-sheet-title'); if (ttl) ttl.textContent = '⚡ Power hour · done';
+    if (i >= queue.length) { const ttl = document.getElementById('cm-sheet-title'); if (ttl) ttl.textContent = phMode === 'enrich' ? '🔎 Enrich · done' : '⚡ Power hour · done';
       const nx = powerQueue(); const d0 = el('div', 'cm-ph'); d0.append(el('div', 'who', `Done — ${done.length} compan${done.length === 1 ? 'y' : 'ies'} saved, ${queue.length - done.length} skipped. 🎉`), el('div', 'mut', nx.total ? `${nx.total} more in the list — the next ${Math.min(PH_TARGET, nx.total)} continue where you stopped (recently contacted ones come last).` : 'You’ve worked through the whole list.'));
       const r0 = el('div', 'big acts'); if (nx.total) { const nb = el('button', 'cm-btn', `▶ Next ${Math.min(PH_TARGET, nx.total)}`); nb.type = 'button'; nb.addEventListener('click', () => { queue = nx.list; i = 0; done.length = 0; focus(); C.sheetDraw(); }); r0.append(nb); }
       const cb = el('button', 'cm-btn ghost', 'Close'); cb.type = 'button'; cb.addEventListener('click', () => C.closeSheet()); r0.append(cb); d0.append(r0); body.append(d0); return; }
@@ -992,21 +1027,26 @@ function openPowerHour(anchor, focusId) {
       if (sh && !ctl) { ctl = el('div', 'cm-phctl'); sh.insertBefore(ctl, sh.querySelector('.sx')); }
       if (ctl) { ctl.replaceChildren();
         if (isHouse()) { const ws = el('select', 'cm-phtpl'); ws.title = 'Whose companies'; [['', '👥 Everyone'], ['-', 'Unassigned'], ...miPeople().filter((p) => p.active).map((p) => [p.name, p.name])].forEach(([v, l]) => ws.append(new Option(l, v))); ws.value = phFor(); ws.addEventListener('change', () => { dash.setParams({ phfor: ws.value || null }); ({ list: queue } = powerQueue()); i = 0; focus(); C.sheetDraw(); }); ctl.append(ws); }
-        const bs = el('select', 'cm-phtpl'); bs.title = 'Brand the message and status are for'; ['next', 'dunitech', 'motion'].forEach((b) => bs.append(new Option(C.OURS[b].label, b))); bs.value = it.__brand || key; bs.addEventListener('change', () => { it.__brand = bs.value; if (String(it.__tpl || '').startsWith('my:')) it.__tpl = ''; it.__edited = !1; C.sheetDraw(); }); ctl.append(bs); } }
-    { const ttl = document.getElementById('cm-sheet-title'); if (ttl) { ttl.textContent = `⚡ ${i + 1} of ${queue.length} · ${why[it.t]}`;
+        const bs = el('select', 'cm-phtpl'); bs.title = 'Brand the message and status are for'; ['next', 'dunitech', 'motion'].forEach((b) => bs.append(new Option(C.OURS[b].label, b))); bs.value = it.__brand || key; bs.addEventListener('change', () => { it.__brand = bs.value; it.__brandMine = !0; if (String(it.__tpl || '').startsWith('my:')) it.__tpl = ''; it.__edited = !1; C.sheetDraw(); }); ctl.append(bs); } }
+    { const ttl = document.getElementById('cm-sheet-title'); if (ttl) { ttl.textContent = phMode === 'enrich' ? `🔎 ${i + 1} of ${queue.length} · find a phone, WhatsApp or email` : `⚡ ${i + 1} of ${queue.length} · ${why[it.t]}`;
         const tz = C.TZ[it.iso || dash.params().iso]; if (tz) { try { const P = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short' }).formatToParts(new Date()).map((x) => [x.type, x.value])); const hr = +P.hour; const work = !/Sat|Sun/.test(P.weekday) && hr >= 9 && hr < 18;
           const tm = el('span', `cm-phtime${work ? ' on' : ''}`, `🕑 ${P.hour}:${P.minute} there${work ? '' : ' · closed'}`); tm.title = work ? 'Working hours in that country' : 'Outside working hours there'; ttl.append(' ', tm); } catch { /* unknown zone */ } } } }
-    const nm = el('div', 'who'); const nb = el('button', 'cm-co', `${C.flag(it.iso) || ''} ${it.name}`.trim()); nb.type = 'button'; nb.dataset.openCompany = it.id; nm.append(nb); box.append(nm);
-    const meta = el('div', 'meta'); meta.append([String(it.city || F.get('City') || '').split(/,|\n/)[0], it.status || F.get(C.STATUS_FIELD[key]) || 'no status'].filter(Boolean).join(' · '), rc ? ` · last contact ${rc.ago} ago (${rc.type})` : rc === null ? ' · never really contacted' : '');
+    const nm = el('div', 'who cm-phwho'); const nb = el('button', 'cm-co', `${C.flag(it.iso) || ''} ${it.name}`.trim()); nb.type = 'button'; nb.dataset.openCompany = it.id; nm.append(nb); box.append(nm); setTimeout(() => { const am = box.querySelector('.cm-addmiss'); if (am && am.parentElement !== nm) nm.append(am); }, 0); /* 🔎 Add missing sits at the end of the name line */
+    if (!it.__brandMine) it.__brand = bestBrand(it.id, F, key);
+    { const ntg = (it.__brand === 'next' || key === 'next') && nextTag(it.iso || dash.params().iso); ntg && box.append(ntg); }
+    const meta = el('div', 'meta'); meta.append([String(it.city || F.get('City') || '').split(/,|\n/)[0], ].filter(Boolean).join(' · '), String(it.city || F.get('City') || '').split(/,|\n/)[0] ? ' · ' : '', (() => { const st = F.get(C.STATUS_FIELD[it.__brand]) || (it.__brand === key ? it.status : ''); const sp = el('span', 'cm-stpill', st ? `${C.OURS[it.__brand].label}: ${st}` : 'no status'); sp.dataset.st = !st ? 'none' : /lost|not interested|no fit|not a fit|rejected/i.test(st) ? 'lost' : String(stageGuess(st)); return sp; })(), rc ? ` · last contact ${rc.ago} ago (${rc.type})` : rc === null ? ' · never really contacted' : '');
     const sg = C.statusSuggestBtn(it.id, it.name, key, it.status); sg && meta.append(' ', sg); box.append(meta);
-    if (rc && rc.preview && (rc.pending || rc.type === 'chat')) { const mg = el('div', 'msg', `“${rc.preview}”`); if (guessLang(rc.preview, 'en') !== 'en') mg.append(translateBtn(rc.preview, mg)); box.append(mg); }
+    const pc0 = dash.data('company_contacts'); if (it.t !== 0 && dash.params().cid === it.id && 'ok' === dash.data('company_record').status && 'ok' === pc0.status && !(pc0.data[0] && pc0.data[0].for_cid && pc0.data[0].for_cid !== it.id)) { const ph0 = [...lines(F.get('Phone number')), ...pc0.data.flatMap((p) => C.splitBar(p.phone))].filter((x) => String(x).replace(/\D/g, '').length >= 7); const em0 = [...lines(F.get('Email')), ...pc0.data.map((p) => p.email)].filter((x) => /@/.test(String(x)));
+      if ((ph0.length || em0.length) && phMode === 'enrich' && (phNoReach.has(it.id) || ((C.uiFlags || {}).enrichIds || []).includes(it.id))) { phNoReach.delete(it.id); C.uiFlags = { ...(C.uiFlags || {}), enrichIds: ((C.uiFlags || {}).enrichIds || []).filter((x) => x !== it.id) }; } // found something: back to Power hour
+      if (phMode !== 'enrich' && !ph0.length && !em0.length && !phNoReach.has(it.id)) { phNoReach.add(it.id); C.uiFlags = { ...(C.uiFlags || {}), enrichIds: [...new Set([...((C.uiFlags || {}).enrichIds || []), it.id])].slice(-300) }; setTimeout(() => { C.say(`${it.name}: no phone or email yet — moved to 🔎 Enrich`); queue = queue.filter((x) => x.id !== it.id); focus(); C.sheetDraw(); }, 0); } }
+    if (phMode === 'enrich') { const bn = el('div', 'cm-enrban', '🔎 Enrich: find a phone, WhatsApp or email for this company — then Done → it joins Power hour.'); box.append(bn); setTimeout(() => { const am = document.querySelector('#cm-sheet .cm-addmiss'); if (am && !am.dataset.auto && !document.querySelector('#cm-sheet .cm-enrich')) { am.dataset.auto = '1'; am.click(); } }, 60); }
+    if (rc && rc.preview && (rc.pending || rc.type === 'chat')) { const lm = window.__cm3 && window.__cm3.lastMsgs ? window.__cm3.lastMsgs(it.id) : null; const mg = el('div', 'msg', lm && lm.length ? '' : `“${String(rc.preview).replace(/@\d{6,}/g, '@…')}”`); if (lm && lm.length) lm.forEach((m) => mg.append(el('div', `cm-lm ${m.incoming ? 'in' : 'out'}`, `${m.incoming ? '' : 'Us: '}${m.body}`))); if (guessLang(rc.preview, 'en') !== 'en') mg.append(translateBtn(rc.preview, mg)); box.append(mg); }
     const nxs = F.get('Next step'), nxf = F.get('Next follow-up'); if (nxs || nxf) box.append(el('div', 'meta', `Next step: ${nxs || 'follow up'}${nxf ? ` · ${C.dueLabel(String(nxf).slice(0, 10))}` : ''}`));
     // people (same format as the list's people pop-up) — decision makers and the most reachable first
-    const pc = dash.data('company_contacts'); const ppl = 'ok' === pc.status && dash.params().cid === it.id ? pc.data.slice().sort(personSort) : [];
+    const pc = dash.data('company_contacts'); const ppl = 'ok' === pc.status && dash.params().cid === it.id && !(pc.data[0] && pc.data[0].for_cid && pc.data[0].for_cid !== it.id) ? pc.data.slice().sort(personSort) : [];
     const phones = [...lines(F.get('Phone number')), ...ppl.flatMap((p) => C.splitBar(p.phone))].filter((x) => /\d{6,}/.test(String(x).replace(/\D/g, '')));
     const emails = [...new Set([...lines(F.get('Email')), ...ppl.flatMap((p) => String(p.email || '').split(/, | \| /))].map((x) => x.trim().toLowerCase()).filter((x) => /@/.test(x)))];
-    if (!it.__brand) { const pr = C.rowsOf('partners').find((r) => r.id === it.id) || C.rowsOf('pipeline_stages').find((r) => r.id === it.id) || {};
-      it.__brand = ['next', 'dunitech', 'motion'].map((b) => [b, pr[`stage_${b}`] || 0]).sort((x, y) => y[1] - x[1] || (x[0] === key ? -1 : y[0] === key ? 1 : 0))[0][0]; }
+    if (!it.__brandMine) it.__brand = bestBrand(it.id, F, key);
     const bkey = it.__brand; const bname = C.OURS[bkey].label;
     const ctx = { ...C.tplCtx({ company: it.name, brands: F.get('Brand') || it.line_names, iso: it.iso || dash.params().iso }), brand: bname };
     if (!it.__lang) { const prev = rc && rc.preview ? guessLang(rc.preview, null) : null; if (prev) it.__lang = prev; }
@@ -1018,6 +1058,9 @@ function openPowerHour(anchor, focusId) {
     const mine = (C.phTemplates[bkey] || []);
     const fill = (txt) => String(txt).replace(/\{name\}/g, (ppl[0] && ppl[0].name.split(' ')[0]) || '').replace(/\{company\}/g, it.name).replace(/\{brand\}/g, bname);
     if (!it.__edited) it.__draft = it.__tpl && it.__tpl.startsWith('my:') ? fill((mine[+it.__tpl.slice(3)] || {}).text || '') : replyDraft(it, rc, ppl[0] && ppl[0].name, lang, bname, it.__tpl && TPL[it.__tpl] ? TPL[it.__tpl][1] : null); // smart draft follows new info until you edit it
+    let aiOn = !1; if (!it.__edited && !it.__tpl && window.__cm3 && window.__cm3.aiReply) { const v = window.__cm3.aiReply(it, { lang, first: (ppl[0] && ppl[0].name.split(' ')[0]) || '', brand: bname, sender: me().name, iso: it.iso || dash.params().iso, base: it.__draft }, () => { if (!it.__edited) C.sheetDraw(); }); if (v) { it.__draft = v; aiOn = !0; } }
+    if (!aiOn && lang === 'ar' && !it.__edited && !String(it.__tpl || '').startsWith('my:') && window.__cm3 && window.__cm3.arDraft) { const v = window.__cm3.arDraft(it, replyDraft(it, rc, ppl[0] && ppl[0].name, 'en', bname, it.__tpl && TPL[it.__tpl] ? TPL[it.__tpl][1] : null), (ppl[0] && ppl[0].name.split(' ')[0]) || '', bname, it.iso || dash.params().iso, me().name, () => { if (!it.__edited) C.sheetDraw(); }); if (v) it.__draft = v; }
+    if (window.__m3 && SEQ_ON && it.seq && !it.__edited && !it.__tpl) { const s0 = seqActive(it.id); if (s0) it.__draft = seqDraft(s0, it.__lang || s0.d.lang || lang, (ppl[0] && ppl[0].name.split(' ')[0]) || String(s0.d.contact || '').split(' ')[0], bname, it.name); }
     const LNAME = { en: 'English', tr: 'Türkçe', es: 'Español', pt: 'Português', fr: 'Français', ru: 'Русский', az: 'Azərbaycan', ar: 'العربية' };
     const lg = el('div', 'cm-chips cm-phlang'); langs.map((c) => [c, LNAME[c] || c]).forEach(([c, l]) => { const b = el('button', 'cm-chip', l); b.type = 'button'; b.setAttribute('aria-pressed', String(c === lang)); b.addEventListener('click', () => { it.__lang = c; it.__edited = !1; C.sheetDraw(); }); lg.append(b); });
     const dr = el('textarea', 'cm-phdraft'); dr.value = it.__draft; dr.setAttribute('aria-label', 'Message draft'); const grow = () => { dr.style.height = 'auto'; dr.style.height = `${dr.scrollHeight + 2}px`; }; dr.addEventListener('input', () => { it.__draft = dr.value; it.__edited = !0; grow(); }); setTimeout(grow, 0); // grows with the text: no inner scroll bar
@@ -1027,8 +1070,8 @@ function openPowerHour(anchor, focusId) {
     const live = (a, mk) => { a.addEventListener('click', () => { a.href = mk(); }); a.href = mk(); a.target = '_blank'; a.rel = 'noopener noreferrer'; return a; };
     const big = el('div', 'big');
     if (rc && rc.pending) { const to = rc.type === 'chat' && rc.chat_number ? `https://wa.me/${String(rc.chat_number).replace(/\D/g, '')}` : rc.by_email ? null : null;
-      if (to) big.append(live(el('a', 'cm-btn hot', '↩ Reply on WhatsApp'), () => `${to}?text=${enc(it.__draft)}`));
-      else if (rc.by_email) big.append(live(el('a', 'cm-btn hot', '↩ Reply by email'), () => mailTo(rc.by_email, subj, it.__draft))); }
+      if (to) big.append(live((() => { const x = el('a', 'cm-btn hot', '↩ Reply'); x.append(el('span', 'lgx', ' on WhatsApp')); return x; })(), () => `${to}?text=${enc(it.__draft)}`));
+      else if (rc.by_email) big.append(live((() => { const x = el('a', 'cm-btn hot', '↩ Reply'); x.append(el('span', 'lgx', ' by email')); return x; })(), () => mailTo(rc.by_email, subj, it.__draft))); }
     const wa = phones.find(C.waOk); if (wa) { const wb = el('a', 'cm-btn ghost cm-ico'); wb.innerHTML = C.ICON_WA; wb.title = `WhatsApp ${wa}`; wb.setAttribute('aria-label', 'WhatsApp'); big.append(live(wb, () => `${C.waHref(wa)}?text=${enc(it.__draft)}`)); }
     if (emails[0]) { const ico = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>';
       let eb; if (emails.length > 1) { eb = el('button', 'cm-btn ghost cm-mailbtn'); eb.type = 'button'; eb.innerHTML = `${ico}<span class="n">${emails.length}</span>`; eb.title = `Email — choose one of ${emails.length} addresses, or all`;
@@ -1059,22 +1102,27 @@ function openPowerHour(anchor, focusId) {
         cx2.addEventListener('click', () => { it.__newTpl = !1; C.sheetDraw(); });
         const r2 = el('div', 'big acts'); r2.append(sv2, cx2); f2.append(n2, t2, r2); box.append(f2);
       }
+      if (window.__m3 && SEQ_ON) { const sb = seqBadge(it.id); if (sb) { const w = el('div', 'cm-seqline'); w.append(sb, el('span', 'mut', it.seq ? `today: ${SEQ_CH[it.seq.ch][1]} — the draft below is for this step` : '')); box.append(w); } else { const st = el('button', 'cm-mini cm-seqstart', '🔁 Start a follow-up sequence'); st.type = 'button'; st.addEventListener('click', (e) => openSequence(e.currentTarget, it.id, it.name)); box.append(st); } }
       box.append(dr, big);
       }
     // status: keep as is unless you pick another
     { const fld = C.STATUS_FIELD[bkey]; const cur = (bkey === key && it.status) || F.get(fld) || ''; const opts = C.rowsOf('company_fields').filter((r) => r.field === fld).map((r) => r.option);
-      if (opts.length) { const sel = el('select', 'cm-phstat'); (opts.includes(cur) ? opts : [cur, ...opts]).forEach((o) => sel.append(new Option(o || '— no status —', o))); sel.value = cur;
+      if (opts.length) { const sel = el('select', 'cm-phstat'); (opts.includes(cur) ? opts : [cur, ...opts]).forEach((o) => sel.append(new Option(o || '— no status —', o))); sel.value = cur; const stOf = () => { const v = sel.value; sel.dataset.st = !v ? 'none' : /lost|not interested|no fit|not a fit|rejected/i.test(v) ? 'lost' : String(stageGuess(v)); }; stOf(); sel.addEventListener('change', stOf);
         sel.addEventListener('change', async () => { try { await C.nhCall('update_record', { folderId: C.NH_FOLDER, recordId: it.id, fieldKeys: 'label', fields: { [fld]: sel.value } }); it.status = sel.value; C.say(`✓ ${it.name}: ${C.OURS[key].label} → ${sel.value}`); dash.refresh('companies'); } catch (e) { C.say(`Not saved — ${C.nhErr(e)}`, !0); sel.value = cur; } });
         const sr = el('div', 'meta cm-phstatrow'); const am = el('button', 'cm-chip cm-addmiss', '🔎 Add missing'); am.type = 'button'; am.title = 'Find or paste a missing number, email, website or person'; let pan = null; am.addEventListener('click', () => { if (pan) { pan.remove(); pan = null; am.setAttribute('aria-pressed', 'false'); return; } pan = enrichPanel(it.id, it.name, F); sr.after(pan); am.setAttribute('aria-pressed', 'true'); });
-        sr.append(`${C.OURS[bkey].label} status: `, sel, am); box.append(sr); } }
+        const cat0 = F.get('Category') || ''; const copts = C.rowsOf('company_fields').filter((r) => r.field === 'Category').map((r) => r.option); const cs = el('select', 'cm-phstat cm-phcat'); (copts.includes(cat0) ? copts : [cat0, ...copts]).forEach((o) => cs.append(new Option(o || '— no category —', o))); cs.value = cat0; cs.title = 'Category';
+        cs.addEventListener('change', async () => { try { await C.nhCall('update_record', { folderId: C.NH_FOLDER, recordId: it.id, fieldKeys: 'label', fields: { Category: cs.value } }); C.say(`✓ ${it.name}: category → ${cs.value}`); dash.refresh('companies'); } catch (e) { C.say(`Not saved — ${C.nhErr(e)}`, !0); cs.value = cat0; } });
+        const nmRow = box.querySelector('.cm-phwho'); if (nmRow) { sel.classList.add('cm-phstat-nm'); sel.title = `${C.OURS[bkey].label} status — change it here`; nmRow.insertBefore(sel, nmRow.children[1] || null); sr.append(...(copts.length ? ['Category: ', cs] : []), am); } else sr.append(`${C.OURS[bkey].label} status: `, sel, ...(copts.length ? [' Category: ', cs] : []), am); box.append(sr); } }
     if (!box.querySelector('.cm-addmiss')) { const sr = el('div', 'meta cm-phstatrow'); const am = el('button', 'cm-chip cm-addmiss', '🔎 Add missing'); am.type = 'button'; let pan = null; am.addEventListener('click', () => { if (pan) { pan.remove(); pan = null; return; } pan = enrichPanel(it.id, it.name, F); sr.after(pan); }); sr.append(am); box.append(sr); }
     const msg = el('div', 'hint'); const oc = el('div', 'outc');
     const day = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); };
     const OUT = [['No answer', 2, null], ['Left message', 3, null], ['Spoke', 7, null], ['Meeting set', 0, 'Meeting'], ['Not interested', 0, bkey === 'dunitech' ? 'Lost' : bkey === 'motion' ? 'Other' : 'Not interested'], ['📝 Comment', 0, null]];
-    OUT.forEach(([lbl]) => { const b = el('button', 'cm-chip', lbl); b.type = 'button'; b.setAttribute('aria-pressed', String(it.__out === lbl)); b.addEventListener('click', () => { it.__out = it.__out === lbl ? null : lbl; oc.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.textContent === it.__out))); nt.placeholder = it.__out === '📝 Comment' ? 'Why no outreach? e.g. “Closed for holidays until 5 Jan”, “Number not working” — saved as a comment' : PH; }); oc.append(b); });
-    const PH = 'What happened? e.g. “Spoke with Rafael (gerente). Interested in IM nails, carry Stryker. Send price list. Call back Thursday.” — Enter = done'; const nt = el('textarea', 'cm-phdraft cm-phnotes'); nt.placeholder = it.__out === '📝 Comment' ? 'Why no outreach? — saved as a comment' : 'What happened? e.g. “Spoke with Rafael (gerente). Interested in IM nails, carry Stryker. Send price list. Call back Thursday.” — Enter = done'; nt.value = it.__notes || ''; nt.addEventListener('input', () => { it.__notes = nt.value; });
+    OUT.forEach(([lbl]) => { const b = el('button', 'cm-chip', lbl); b.type = 'button'; b.setAttribute('aria-pressed', String(it.__out === lbl)); b.addEventListener('click', () => { it.__out = it.__out === lbl ? null : lbl; oc.querySelectorAll('button').forEach((x) => x.setAttribute('aria-pressed', String(x.textContent === it.__out))); nt.placeholder = it.__out === '📝 Comment' ? 'Why no outreach? (saved as a comment)' : PH; }); oc.append(b); });
+    const PH = 'What happened? · Enter = done'; const nt = el('textarea', 'cm-phdraft cm-phnotes'); nt.rows = 2; nt.placeholder = it.__out === '📝 Comment' ? 'Why no outreach? — saved as a comment' : 'What happened? · Enter = done'; nt.value = it.__notes || ''; nt.addEventListener('input', () => { it.__notes = nt.value; });
+    const editL = el('button', 'cm-mini cm-myentb', '🧾 Edit what I logged'); editL.type = 'button'; editL.title = 'Change an outcome you saved (e.g. No answer → Spoke) or add to a note'; editL.addEventListener('click', (e) => openMyEntries(e.currentTarget, it.id, it.name));
     const doneB = el('button', 'cm-btn', 'Done →'); doneB.type = 'button'; doneB.title = 'Saves the outcome and your notes to NetHunt, then opens the next company (or press Enter)';
-    const skip = el('button', 'cm-btn ghost', 'Skip'); skip.type = 'button'; skip.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); phWorked.add(it.id); i += 1; focus(); C.sheetDraw(); const sb = document.querySelector('#cm-sheet .sb'); sb && (sb.scrollTop = 0); });
+    const undoOn = phUndo && phUndo.next === it.id && Date.now() - phUndo.at < 5e3; const skip = el('button', 'cm-btn ghost', undoOn ? '↶ Undo' : 'Skip'); skip.type = 'button'; if (undoOn) skip.title = `Back to ${phUndo.name}`;
+    skip.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); if (undoOn) { phWorked.delete(phUndo.id); i = phUndo.idx; phUndo = null; focus(); C.sheetDraw(); return; } phUndo = { id: it.id, name: it.name, idx: i, next: (queue[i + 1] || {}).id, at: Date.now() }; phWorked.add(it.id); i += 1; focus(); C.sheetDraw(); const sb = document.querySelector('#cm-sheet .sb'); sb && (sb.scrollTop = 0); setTimeout(() => { if (phUndo && Date.now() - phUndo.at >= 5e3) { phUndo = null; C.sheetDraw(); } }, 5100); });
     doneB.addEventListener('click', async () => {
       const txt = nt.value.trim(); const o2 = OUT.find((x) => x[0] === it.__out);
       if (!o2 && !txt) { phWorked.add(it.id); i += 1; focus(); C.sheetDraw(); return; }
@@ -1099,7 +1147,7 @@ function openPowerHour(anchor, focusId) {
     const act = el('div', 'big acts'); const ig = ignoreBtn(it.id, it.name, () => { phWorked.add(it.id); queue = queue.filter((x) => x.id !== it.id); focus(); C.sheetDraw(); }); act.append(doneB, skip, ig);
     box.append(el('div', 'meta', 'How did it go?'), oc, nt, act, msg);
     // right side: people at the top, brands at the bottom
-    const ph = el('div', 'cm-phppl'); ph.append(el('div', 'k', `👥 People${ppl.length ? ` · ${ppl.length}` : ''}`));
+    const ph = el('div', 'cm-phppl'); { const k0 = el('div', 'k'); k0.append(`👥 People${ppl.length ? ` · ${ppl.length}` : ''} `); if (window.__m3) { const ad = el('button', 'cm-mini cm-padd', '＋ Add person'); ad.type = 'button'; ad.title = 'Add someone you found — name, title, phones, emails, LinkedIn, Facebook, Instagram'; ad.addEventListener('click', (e) => editPerson(e.currentTarget, null, it.id)); k0.append(ad); } ph.append(k0); }
     if ('loading' === pc.status || dash.params().cid !== it.id) ph.append(el('div', 'hint', 'Loading…'));
     else if (!ppl.length) ph.append(el('div', 'hint', 'No people linked in NetHunt yet.'));
     else ppl.slice(0, 6).forEach((p) => ph.append(C.contactLine(p.name, [p.title, C.cmRank(p.title) <= 1 ? 'decision maker' : ''].filter(Boolean).join(' · '), { linkedin: p.linkedin, phones: C.splitBar(p.phone), emails: String(p.email || '').split(/, | \| /).filter(Boolean) })));
@@ -1119,10 +1167,11 @@ function openPowerHour(anchor, focusId) {
         if (iv && iv.import_value_usd) { const r2 = el('div'); r2.append(el('b', null, `📦 Imports ${C.money(iv.import_value_usd)}`), el('span', 'mut', ` · ${iv.import_entries || 1} entr${(iv.import_entries || 1) === 1 ? 'y' : 'ies'}${iv.last_logged ? ` · last ${String(iv.last_logged).slice(0, 7)}` : ''}`)); fx.append(r2); }
         side.append(fx); } }
     { const tl = dash.data('company_timeline'); const ra = el('div', 'cm-phact'); ra.append(el('div', 'k', '🕑 Recent activity'));
-      const evs = 'ok' === tl.status && dash.params().cid === it.id ? tl.data.filter((x) => 'campaign_email' !== x.type || (x.replies || 0) > 0).slice(0, 25) : [];
-      if (!evs.length) ra.append(el('div', 'hint', 'loading' === tl.status ? 'Loading…' : 'Nothing logged yet.'));
-      else { const u = el('ul', 'cm-sumev'); evs.forEach((x) => { const li = el('li'); const ic = el('span', 'i'); ic.textContent = { call: '☎', chat: '💬', email: '✉', calendar: '📅', comment: '📝' }[x.type] || '•'; const d = C.agoDays(x.time);
-          const b = el('span'); b.append(el('span', 'mut', `${null == d ? '' : 0 === d ? 'today' : 1 === d ? 'yesterday' : `${d} days ago`}${x.by ? ` · ${String(x.by).split(' ')[0]}` : ''}`), el('br'), String(x.title ? `${x.title} — ${x.detail || ''}` : x.detail || '').slice(0, 120)); li.append(ic, b); u.append(li); }); ra.append(u); }
+      const cc = companyChats(it.id); const pch = (cc || []).map((r) => ({ type: 'chat', time: r.time, by: '', provider: r.provider, title: r.person, detail: r.last, chat_status: r.status, __chat: { folder: CT_ID, rid: r.rid, id: r.id, who: r.person.split(' ')[0], n: r.count, name: r.name, status: r.status, provider: r.provider } }));
+      const evs0 = 'ok' === tl.status && dash.params().cid === it.id ? [...tl.data.filter((x) => 'campaign_email' !== x.type || (x.replies || 0) > 0), ...pch.filter((p) => !tl.data.some((x) => x.type === 'chat' && Math.abs(new Date(x.time) - new Date(p.time)) < 6e4))].sort((x, y) => String(y.time).localeCompare(String(x.time))).slice(0, 40) : []; const evs2 = window.__cm3 && window.__cm3.actPost ? window.__cm3.actPost(evs0, actState).slice(0, 25) : evs0.slice(0, 25);
+      const evs = evs2; if (!evs.length) ra.append(el('div', 'hint', 'loading' === tl.status ? 'Loading…' : 'Nothing logged yet.'));
+      else { const u = el('ul', 'cm-sumev'); evs.forEach((x) => { const li = el('li', `t-${x.type}${x.type === 'chat' && (x.chat_status === 'NOT_REPLIED' || (x.__chat && x.__wait)) ? ' wait' : ''}`); const ic = el('span', 'i'); if (x.type === 'chat') ic.innerHTML = chatLogo(x); else ic.textContent = { call: '☎', email: '✉', calendar: '📅', comment: '📝', campaign_email: '📣' }[x.type] || '•'; if (x.type === 'chat') x = { ...x, title: chatWho(x.title) || 'WhatsApp group' }; const d = C.agoDays(x.time);
+          const b = el('span', 'b'); { const hd = el('div', 'h'); const when = `${null == d ? '' : d < 0 ? (-1 === d ? 'tomorrow' : `in ${-d} days`) : 0 === d ? 'today' : 1 === d ? 'yesterday' : `${d} days ago`}`; hd.append(el('b', null, x.title || ({ call: 'Call', email: 'Email', calendar: 'Meeting', comment: 'Comment', campaign_email: 'Campaign', chat: 'WhatsApp' }[x.type] || x.type)), el('span', 'when', `${when}${x.by && x.type !== 'chat' ? ` · ${String(x.by).split(' ')[0]}` : ''}`)); b.append(hd); if (x.detail) b.append(el('div', 'd', String(x.detail).slice(0, 260))); } const ch0 = x.__chat || (x.type === 'chat' && x.id ? { folder: C.NH_FOLDER, rid: x.rid || it.id, id: x.id, who: '', n: x.chat_msgs, name: x.chat_name, status: x.chat_status } : null); if (ch0) b.append(chatActs({ folder: ch0.folder, rid: ch0.rid, id: ch0.id, person: ch0.who, chat_msgs: ch0.n, chat_name: ch0.name || '', chat_status: ch0.status || '', provider: ch0.provider || '', title: x.title })); else if (window.__m3) { const eb = actEdit(x, li); eb && b.append(eb); } if (x.type === 'email' && window.__cm3 && window.__cm3.mailActs) b.append(window.__cm3.mailActs(x)); li.append(ic, b); u.append(li); }); ra.append(u); }
       side.append(ra); }
     wrap.append(box, side); body.append(wrap);
   }, { wide: !0, center: !0 });
@@ -1235,20 +1284,23 @@ function relatedLine(cid, F) {
   });
   box.append(add);
   const wrap = __cm.el('div'); { const sc = scoreChip(cid); sc && wrap.append(sc); } wrap.append(box);
-  { const nmEl = document.querySelector('#company .cm-cname'); if (nmEl) { document.querySelectorAll('#company .cm-cph').forEach((x) => x.remove()); const pb = __cm.el('button', 'cm-chip cm-cph', '⚡ Power hour'); pb.type = 'button'; pb.title = 'Open the outreach pop-up for this company (draft, WhatsApp, email, outcome), then continue with the next ones'; pb.addEventListener('click', () => openPowerHour(pb, cid)); nmEl.after(pb); } const ig = ignoreBtn(cid, F.get('Name') || ''); ig.className = 'cm-chip'; const row = __cm.el('div', 'cm-cacts'); row.append(ig); wrap.append(row); }
+  { const nmEl = document.querySelector('#company .cm-cname'); if (nmEl) { document.querySelectorAll('#company .cm-cph').forEach((x) => x.remove()); const pb = __cm.el('button', 'cm-chip cm-cph', '⚡ Power hour'); pb.type = 'button'; pb.title = 'Open the outreach pop-up for this company (draft, WhatsApp, email, outcome), then continue with the next ones'; pb.addEventListener('click', () => openPowerHour(pb, cid)); nmEl.after(pb); } const ig = ignoreBtn(cid, F.get('Name') || ''); ig.className = 'cm-chip'; const row = __cm.el('div', 'cm-cacts'); row.append(ig); const myE = (() => { const b = __cm.el('button', 'cm-chip', '🧾 My entries'); b.type = 'button'; b.title = 'Change an outcome you saved or add to a note (last 14 days)'; b.addEventListener('click', (e) => openMyEntries(e.currentTarget, cid, F.get('Name') || '')); return b; })();   const sq = !window.__m3 || !SEQ_ON ? null : seqBadge(cid) || (() => { const b = __cm.el('button', 'cm-chip', '🔁 Sequence'); b.type = 'button'; b.title = 'Start a follow-up sequence: WhatsApp → email → call → last try, stops when they reply'; b.addEventListener('click', (e) => openSequence(e.currentTarget, cid, F.get('Name') || '')); return b; })(); sq && row.append(sq); wrap.append(row); }
   { const eb = __cm.el('button', 'cm-chip cm-addmiss', '🔎 Add missing details'); eb.title = 'Find or paste a number, email, website or person for this company — it counts in your Details found today'; eb.type = 'button'; let open = null; eb.addEventListener('click', () => { if (open) { open.remove(); open = null; return; } open = enrichPanel(cid, F.get('Name') || '', F); (wrap.querySelector('.cm-cacts') || wrap).after(open); }); (wrap.querySelector('.cm-cacts') || wrap).append(eb); } { dash.data('medint_assign'); const a = assigneeOf(cid); if (a) { const bn = __cm.el('div', 'cm-asgbar', `👥 Assigned to ${a}${a === me().name ? ' (you)' : ''}`); wrap.append(bn); } } wrap.append(identityLine(cid));
   return wrap;
 }
 // ---- Recent activity: show only some event types, newest or oldest first ----
 const ACT_TYPES = [['email', '✉ Emails'], ['campaign_email', '📣 Email campaigns'], ['calendar', '📅 Meetings'], ['comment', '📝 Comments'], ['call', '☎ Calls'], ['chat', '💬 WhatsApp chats']];
-const actState = { hide: new Set(), oldest: !1, allCamp: !1 };
+const actState = { hide: new Set(), oldest: !1, allCamp: !1, sys: !1 };
 function actView(rows, box) {
   const btn = document.querySelector('#company-activity .cm-actfilter');
   if (btn && !btn.dataset.wired) { btn.dataset.wired = '1'; btn.addEventListener('click', () => actMenu(btn)); }
   if (btn) { const on = ACT_TYPES.filter(([k]) => !actState.hide.has(k)); btn.textContent = `☰ Show: ${on.length === ACT_TYPES.length ? 'all' : on.length ? on.map(([, l]) => l.split(' ')[0]).join(' ') : 'none'}${actState.oldest ? ' · oldest first' : ''}`; }
+  if (window.__m3 && __cm.curView() === 'company') { const cid = dash.params().cid; const cc = companyChats(cid) || []; const have = new Set(rows.map((r) => r.id)); rows = [...rows, ...cc.filter((r) => !have.has(r.id)).map((r) => ({ id: r.id, rid: r.rid, folder: CT_ID, time: r.time, type: 'chat', by: '', title: r.person, detail: r.last, chat_msgs: r.count, chat_status: r.status, chat_name: r.name, provider: r.provider, person: r.person }))]; }
+  rows = rows.map((r) => (r.type === 'chat' && /^(WhatsApp|LinkedIn)\s*·/i.test(r.title || '') ? { ...r, title: chatWho(r.title) || 'WhatsApp group' } : r));
   const out = rows.filter((r) => !actState.hide.has(r.type) && (r.type !== 'campaign_email' || actState.allCamp || (r.replies || 0) > 0)).slice().sort((x, y) => (actState.oldest ? 1 : -1) * String(x.time || '').localeCompare(String(y.time || '')));
-  if (rows.length && !out.length && box) box.append(__cm.el('div', 'hint', 'Nothing of the chosen types — change ☰ Show.'));
-  return out;
+  const out2 = window.__cm3 && window.__cm3.actPost ? window.__cm3.actPost(out, actState) : out;
+  if (rows.length && !out2.length && box) box.append(__cm.el('div', 'hint', 'Nothing of the chosen types — change ☰ Show.'));
+  return out2;
 }
 function actMenu(btn) {
   const C = __cm; const el = C.el;
@@ -1261,6 +1313,7 @@ function actMenu(btn) {
     row(all, 'All events', () => { actState.hide = all ? new Set(ACT_TYPES.map(([k]) => k)) : new Set(); redraw(); });
     ACT_TYPES.forEach(([k, l]) => row(!actState.hide.has(k), l, () => { actState.hide.has(k) ? actState.hide.delete(k) : actState.hide.add(k); redraw(); }, () => { actState.hide = new Set(ACT_TYPES.map(([x]) => x).filter((x) => x !== k)); redraw(); }));
     row(actState.allCamp, 'Campaigns: all, not only replied', () => { actState.allCamp = !actState.allCamp; redraw(); });
+    row(actState.sys, 'System notes (enrichment, merges, updates)', () => { actState.sys = !actState.sys; redraw(); });
     const ord = el('button', 'cm-mini', actState.oldest ? '⇅ Newest first' : '⇅ Oldest first'); ord.type = 'button'; ord.addEventListener('click', () => { actState.oldest = !actState.oldest; redraw(); });
     body.append(list, ord);
   }, { static: !0 });
@@ -1269,7 +1322,7 @@ function actMenu(btn) {
 // ===================== Medint log, people & sending identity (Release 1) =====================
 const MI = { PEOPLE: '6ad610066a38c15893c9d431', LOG: '6ad6100defa2051dc4ad1ab7', ASSIGN: '6ad6101118904c2628e16827', CF: 'https://dash.cloudflare.com/ab7239021280422c3c5d832079c8972b/one/access-controls/policies/334b571e-fb14-4cc8-8507-37ac8bac2847/edit' };
 const MI_FOLDERS = new Set([MI.PEOPLE, MI.LOG, MI.ASSIGN]);
-const HOUSE_DEFAULT = ['hi@kavikaplan.com', 'team@kavikaplan.com'];
+const HOUSE_DEFAULT = ['hi@kavikaplan.com']; // Team (team@) is a Person since 21 Oct 2026
 function miPeople() { return __cm.rowsOf('medint_people'); }
 // website: the server says who is logged in and their role; inside Claude it's always House (Kavi)
 let miWho = window.cmBoot ? null : { email: 'hi@kavikaplan.com', role: 'House', name: 'Kavi' };
@@ -1281,7 +1334,8 @@ try { needLog(LOG_FROM); } catch { /* set again just below */ }
 let logWait = 0; setInterval(() => { try { if (window.cmBoot && tStats.d1 !== !1 && dS.d1 !== !1) return; const d = dash.data('medint_log'); if (d.status === 'loading') { logWait += 1; if (logWait === 6) { dash.refresh('medint_log'); } } else { if (logWait) { logWait = 0; hmKey = ''; dS.at = 0; drawHome(); } } } catch { /* not ready */ } }, 2000); // a stuck load is retried after ~12 s
 setTimeout(() => { try { needLog(LOG_FROM); dash.data('medint_people'); dash.data('medint_assign'); dash.data('medint_ignore'); if (!window.cmBoot) dash.data('medint_log'); } catch { /* datasets not ready yet */ } }, 0);
 let homeFirst = !1; const goHomeFirst = () => { if (homeFirst) return; homeFirst = !0; if (!/^#v~/.test(location.hash || '') && dash.params().view !== 'home') dash.setParams({ view: 'home' }); };
-setTimeout(goHomeFirst, 300); setTimeout(() => { homeFirst = !1; goHomeFirst(); }, 2500); // after saved settings are restored
+let userMoved = !1; document.addEventListener('pointerdown', () => { userMoved = !0; }, { once: !0, capture: !0 }); document.addEventListener('keydown', () => { userMoved = !0; }, { once: !0, capture: !0 });
+setTimeout(goHomeFirst, 300); setTimeout(() => { if (userMoved) return; homeFirst = !1; goHomeFirst(); }, 2500); // after saved settings are restored — but never pull someone back who already started clicking
 if (window.cmBoot) fetch('/api/me', { credentials: 'same-origin' }).then((r) => r.json()).then((j) => { const em = String(j.email || '').toLowerCase(); miWho = { email: em, role: j.role === 'House' || (!j.role && HOUSE_DEFAULT.includes(em)) ? 'House' : j.role === 'Unknown' ? 'Unknown' : 'Person', name: j.name, active: j.active !== false, lookup: j.lookup }; dash.setParams({ who: miWho.role }); }).catch(() => { miWho = { email: '', role: 'Person' }; });
 function me() {
   const w = miWho || { email: '', role: 'Person' }; const email = w.email || '';
@@ -1302,6 +1356,7 @@ function keepIdentity(id) { // first contact from Medint fixes the company's ide
 }
 // one log line: NetHunt “Medint Log” (+ the website's own copy)
 function miLog(ev) {
+  try { if (window.__m3 && SEQ_ON && ev.company_id && ['Call', 'WhatsApp', 'Email'].includes(ev.action)) seqTouched(ev.company_id, ev.action); } catch { /* the log comes first */ }
   const p = me(); const now = new Date(); const c = ev.company_id ? (__cm.rowsOf('companies').find((x) => x.id === ev.company_id) || __cm.companyById(ev.company_id) || {}) : {};
   const cname = ev.company || c.company || ''; const ctry = ev.country || String(c.country || '').split(' | ')[0] || '';
   const fields = { Name: `${ev.action} · ${p.name}${cname ? ` · ${cname}` : ''}`.slice(0, 200), Epoch: now.getTime(), Time: now.toISOString(), Day: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()), Person: p.name, 'Person email': p.email, Action: ev.action, Outcome: String(ev.outcome || '').slice(0, 250), Text: String(ev.text || '').slice(0, 20000), 'Company name': cname, Country: ctry, Identity: ev.identity || '', Source: miSource() };
@@ -1323,18 +1378,19 @@ function onWrite(tool, args, res) {
   const f = args.fields || {}; const id = args.recordId; const CO = __cm.NH_FOLDER, CT = '6682e9b8b6386800f586c0b0', DL = '6682e9b8b6386800f586c0af', CN = '673c960008039266ccd2ead3';
   const strip = (t) => String(t || '').replace(/\n— [^\n]+$/, '');
   if (tool === 'create_record_call_log') return miLog({ action: 'Call', company_id: args.folderId === CO ? id : '', outcome: (strip(args.text).match(/^(No answer|Left message|Spoke|Meeting set|Not interested)/) || [])[1] || '', text: strip(args.text) });
+  if (tool === 'create_record_comment' && /^✎ Update to /.test(args.text || '')) return miLog({ action: 'Other', company_id: args.folderId === CO ? id : '', outcome: 'entry updated', text: strip(args.text || '').slice(0, 500) });
   if (tool === 'create_record_comment') return miLog({ action: /^Catalogue sent/.test(args.text || '') ? 'Catalogue' : 'Comment', company_id: args.folderId === CO ? id : '', text: strip(args.text) });
   const DETAIL = { 'Phone number': 'phone', Email: 'email', Website: 'website', LinkedIn: 'linkedin', Facebook: 'facebook', Instagram: 'instagram', Address: 'address', Photo: 'photo' };
   if ((args.folderId === CO || args.folderId === CT) && tool === 'update_record') { const dk = Object.keys(f).filter((k) => DETAIL[k] && f[k] != null && f[k] !== '' && !(Array.isArray(f[k]) && !f[k].length));
     if (dk.length && dk.length === Object.keys(f).filter((k) => k !== 'Sending identity').length) { // only contact details changed: that's a detail found
       const co = args.folderId === CO ? id : String((__cm.rowsOf('company_contacts').find((x) => x.id === id) || {}).company_ids || '').split('|')[0] || dash.params().cid || '';
-      dk.forEach((k) => miLog({ action: 'Contact', company_id: co, outcome: `found ${DETAIL[k]}`, text: k === 'Photo' ? '' : String(Array.isArray(f[k]) ? f[k][f[k].length - 1] : f[k]).slice(0, 300) })); return; } }
+      dk.forEach((k) => miLog({ action: 'Contact', company_id: co, outcome: `${window.__cmAuto ? 'auto' : 'found'} ${DETAIL[k]}`, text: k === 'Photo' ? '' : String(Array.isArray(f[k]) ? f[k][f[k].length - 1] : f[k]).slice(0, 300) })); return; } }
   if (args.folderId === CO && tool === 'update_record') {
     const keys = Object.keys(f).filter((k) => k !== 'Sending identity'); if (!keys.length) return;
     const st = keys.filter((k) => STATUS_FIELDS.has(k)); const kind = st.length ? 'Status' : keys.some((k) => /Ortho evidence|Category/.test(k)) ? 'Ortho' : keys.includes('Related companies') ? 'Related' : keys.includes('Assigned to') ? 'Assignment' : 'Field change';
     return miLog({ action: kind, company_id: id, outcome: keys.map((k) => `${k} → ${Array.isArray(f[k]) ? f[k].join(', ') : k === 'Next follow-up' && f[k] ? new Date(f[k]).toISOString().slice(0, 10) : f[k]}`).join(' · ').slice(0, 250) });
   }
-  if (args.folderId === CT && tool === 'create_record') return miLog({ action: 'Contact', company_id: [].concat(f.Company || [])[0] || '', outcome: 'found person', text: [f.Name, f.Title, [].concat(f.Email || [])[0], [].concat(f['Phone number'] || [])[0]].filter(Boolean).join(' · ') });
+  if (args.folderId === CT && tool === 'create_record') return miLog({ action: 'Contact', company_id: [].concat(f.Company || [])[0] || '', outcome: window.__cmAuto ? 'auto person' : 'found person', text: [f.Name, f.Title, [].concat(f.Email || [])[0], [].concat(f['Phone number'] || [])[0]].filter(Boolean).join(' · ') });
   if (args.folderId === DL) return miLog({ action: 'Deal', company_id: [].concat(f.Company || [])[0] || '', outcome: `${tool === 'create_record' ? 'New deal' : 'Deal updated'}: ${[f.Name, f.Stage].filter(Boolean).join(' · ')}` });
   if (args.folderId === CN) return miLog({ action: 'Registration', outcome: Object.entries(f).map(([k, v]) => `${k} → ${v}`).join(' · ').slice(0, 250) });
 }
@@ -1378,7 +1434,7 @@ function openPeople(anchor) {
       const ac = el('select'); ['Active', 'Paused'].forEach((o) => ac.append(new Option(o, o))); ac.value = p.active === false ? 'Paused' : 'Active';
       const sv = el('button', 'cm-btn', p.id ? 'Save' : 'Add'); sv.type = 'button'; const msg = el('span', 'hint');
       sv.addEventListener('click', async () => { if (!nm.value.trim() || !/@/.test(em.value)) { msg.textContent = 'Name and email needed.'; return; } sv.disabled = !0;
-        const fields = { Name: nm.value.trim(), Email: em.value.trim().toLowerCase(), Role: rl.value, Active: ac.value, 'Default mailbox': mb.value.trim(), 'Default WhatsApp': wa.value.trim(), 'Other mailboxes': om.value.trim() };
+        const fields = { Name: nm.value.trim(), Email: em.value.trim().toLowerCase(), Role: rl.value, Active: ac.value, 'Default mailbox': mb.value.trim(), 'Default WhatsApp': wa.value.trim(), 'Other mailboxes': om.value.trim() }; Object.keys(fields).forEach((k) => { if (fields[k] === '') { if (p.id) fields[k] = null; else delete fields[k]; } }); /* NetHunt rejects empty text — clear it instead */
         try { await C.nhCall(p.id ? 'update_record' : 'create_record', { folderId: MI.PEOPLE, ...(p.id ? { recordId: p.id } : {}), fieldKeys: 'label', fields }); miLog({ action: 'Other', outcome: `${p.id ? 'Updated' : 'Added'} person ${fields.Name} (${fields.Role}, ${fields.Active})` }); msg.textContent = '✓ Saved'; dash.refresh('medint_people'); } catch (e) { msg.textContent = `Not saved — ${C.nhErr(e)}`; } finally { sv.disabled = !1; } });
       r.append(nm, em, rl, ac, mb, wa, om, sv, msg); return r;
     };
@@ -1452,7 +1508,7 @@ function directLog() {
   return dLog.rows;
 }
 // the log rows for Home (Claude): the shared dataset, or the direct read if the dataset is slow
-function homeLog() { const lg = dash.data('medint_log'); if ('ok' === lg.status) return lg.data; if (!dLog.started) dLog.started = Date.now(); if (Date.now() - dLog.started > 5000 || 'error' === lg.status) return directLog(); return null; }
+function homeLog() { const lg = dash.data('medint_log'); if ('ok' === lg.status) return lg.data; if (!dLog.started) dLog.started = Date.now(); if (Date.now() - dLog.started > 15000 || 'error' === lg.status) return directLog(); /* only if the normal read is really stuck */ return null; }
 // Loading… — or, if the log can’t be read, say so with a retry
 function loadingOrError() { const el = __cm.el; if (!dS.err) return el('div', 'hint', 'Loading your numbers…'); const x = el('div', 'hint'); x.append(`Couldn’t read the Medint log from NetHunt (${String(dS.err).slice(0, 80)}). `); const b = el('button', 'cm-mini', '↻ Try again'); b.type = 'button'; b.addEventListener('click', () => { dS.err = null; dS.at = 0; dash.refresh('medint_log'); }); x.append(b); return x; }
 // 🔎 details found today (numbers, emails, people… added with Add missing), compared with yesterday
@@ -1636,7 +1692,7 @@ function tendersInRows() {
   document.querySelectorAll('.cm-partner').forEach((row) => { const w = row.querySelector('.why'); if (!w || w.dataset.tw) return; w.dataset.tw = '1'; const b = row.querySelector('[data-open-company]'); const o = b && partnerRow(b.dataset.openCompany); if (o && o.tender_short) w.append(` · ${o.tender_short}`); });
 }
 function decoratePartners() {
-  tendersInRows(); ignoredInRows();
+  tendersInRows(); ignoredInRows(); whyInRows(); attachRowOut();
   if (!isHouse()) return; dash.data('medint_assign');
   document.querySelectorAll('.cm-partner').forEach((row) => { if (row.querySelector('.cm-asg')) return; const b = row.querySelector('[data-open-company]'); if (!b) return; const a = assigneeOf(b.dataset.openCompany); if (a) { const t = __cm.el('span', 'cm-asg', initials(a)); t.title = `Assigned to ${a}`; b.after(t); } });
   const tools = document.querySelector('.cm-ptools'); if (!tools || tools.querySelector('.cm-asgchip')) return;
@@ -1645,6 +1701,25 @@ function decoratePartners() {
   tools.prepend(ch);
 }
 
+const WHY_TAG = ['💬 They wrote', '📅 Meeting soon', '⏰ Follow-up due', '🔥 Gone quiet', '💤 Engaged, quiet', '✨ New lead', '♨ Keep warm', '', '✓ Contacted recently', '🏭 Manufacturer branch', '⚪ Unprocessed'];
+function whyInRows() { const P = dash.params(); const on = P.psort === 'next' || (!P.psort && !isHouse()); document.querySelectorAll('.cm-partner').forEach((row) => { const b = row.querySelector('[data-open-company]'); if (!b) return; let tg = row.querySelector('.cm-why');
+  if (!on) { tg && tg.remove(); return; } const it = phItem(b.dataset.openCompany); const txt = !it ? '' : it.seq && SEQ_ON ? `🔁 Step ${it.seq.i + 1}/${it.seq.n} · ${{ whatsapp: 'WhatsApp', email: 'Email', call: 'Call' }[it.seq.ch] || ''}` : WHY_TAG[it.t] || '';
+  if (!txt) { tg && tg.remove(); return; } if (!tg) { tg = __cm.el('span', `cm-why t${it.t}`); tg.title = 'Why it is here in the Power hour order'; b.after(tg); } if (tg.textContent !== txt) { tg.textContent = txt; tg.className = `cm-why t${it.t}`; } }); }
+// ----- “How did it go?” after a call, WhatsApp or email from a Best partners row (same outcomes as Power hour) -----
+let rowOut = null; let lastRow = { cid: '', at: 0 }; // the outcome bar survives the list redrawing
+document.addEventListener('pointerdown', (e) => { const r = e.target.closest && e.target.closest('.cm-partner'); const b = r && r.querySelector('[data-open-company]'); if (b) lastRow = { cid: b.dataset.openCompany, at: Date.now() }; }, !0);
+document.addEventListener('click', (e) => { const a = e.target.closest && e.target.closest('a[href^="tel:"], a[href*="wa.me"], a[href*="mail.google.com"], a[href^="mailto:"]'); if (!a || a.closest('#cm-sheet')) return;
+  const row = a.closest('.cm-partner'); const b = row && row.querySelector('[data-open-company]'); const cid = b ? b.dataset.openCompany : Date.now() - lastRow.at < 60e3 ? lastRow.cid : ''; if (!cid || __cm.curView() !== 'country') return;
+  const ch = /^tel:/.test(a.href) ? 'Call' : /wa\.me/.test(a.href) ? 'WhatsApp' : 'Email';
+  if (ch === 'Call') miLog({ action: 'Call', company_id: cid, outcome: `call to ${decodeURIComponent(a.href.replace(/^tel:/, ''))}` });
+  rowOut = { cid, ch, at: Date.now() }; setTimeout(attachRowOut, 300); }, !0);
+function attachRowOut() { if (!rowOut || Date.now() - rowOut.at > 20 * 60e3) { rowOut = null; return; } const { cid, ch } = rowOut; const row = [...document.querySelectorAll('.cm-partner')].find((r) => { const b = r.querySelector('[data-open-company]'); return b && b.dataset.openCompany === cid; }); if (!row || row.querySelector('.cm-rowout')) return;
+  const el = __cm.el; const box = el('div', 'cm-rowout'); box.append(el('span', 'mut', `How did it go? (${ch})`));
+  const note = el('input'); note.placeholder = 'Note · Enter = save';
+  const save = (res) => { if (res) miLog({ action: 'Other', company_id: cid, outcome: `result: ${res} (${ch})` }); if (note.value.trim()) miLog({ action: 'Comment', company_id: cid, outcome: res ? `${res}: note` : 'note', text: note.value.trim() }); __cm.say(`Saved${res ? ` · ${res}` : ''}${res === 'Meeting set' ? ' — add it to the calendar from the company page' : ''}`); phWorked.add(cid); pqMemo.key = ''; rowOut = null; box.remove(); };
+  ['No answer', 'Left message', 'Spoke', 'Meeting set', 'Not interested'].forEach((r) => { const c = el('button', 'cm-chip', r); c.type = 'button'; c.addEventListener('click', (ev) => { ev.stopPropagation(); save(r); }); box.append(c); });
+  note.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); save(''); } }); note.addEventListener('click', (ev) => ev.stopPropagation()); note.addEventListener('input', () => { rowOut && (rowOut.note = note.value); }); if (rowOut.note) note.value = rowOut.note;
+  const x = el('button', 'cm-mini', '✕'); x.type = 'button'; x.title = 'Skip'; x.addEventListener('click', (ev) => { ev.stopPropagation(); rowOut = null; box.remove(); }); box.append(note, x); row.append(box); }
 // ----- Assignments (House) -----
 function regionTags(kind, value) {
   const cs = __cm.rowsOf('countries'); const pick = kind === 'Region' ? cs.filter((c) => low(c.region) === low(value)) : String(value).split(/[, ]+/).map((v) => cs.find((c) => low(c.iso) === low(v) || low(c.country) === low(v))).filter(Boolean);
@@ -1823,9 +1898,16 @@ function companyLayout() {
   const idn = top.querySelector('.cm-idn'); const qa = top.querySelector('.cm-cqa'); if (idn && qa && idn.parentElement !== qa) qa.append(idn);
   const wrap = sub && [...sub.children].find((x) => x.tagName === 'DIV' && x.querySelector('.cm-related')); if (wrap) wrap.classList.add('cm-cline');
 }
+// Power hour: the right column reaches exactly to the bottom of the pop-up; People keeps ~3 rows, Recent activity takes the rest and scrolls
+function phFit() {
+  const sh = document.getElementById('cm-sheet'); if (!sh || sh.hidden || !sh.classList.contains('center')) return; const side = sh.querySelector('.cm-ph2 > .side'); const sb = sh.querySelector('.sb'); if (!side || !sb) return;
+  if (window.innerWidth <= 760) { if (side.style.maxHeight) side.style.maxHeight = ''; return; }
+  const top = Math.max(side.getBoundingClientRect().top, sb.getBoundingClientRect().top); const h = Math.floor(sb.getBoundingClientRect().bottom - top - 12); const v = `${Math.max(240, h)}px`; if (side.style.maxHeight !== v) side.style.maxHeight = v;
+}
+window.addEventListener('resize', () => { try { phFit(); } catch { /* closed */ } });
 function phCtlTidy() { const t = document.getElementById('cm-sheet-title'); const c = document.querySelector('#cm-sheet .cm-phctl'); if (c && (!t || !/⚡/.test(t.textContent) || document.getElementById('cm-sheet').hidden)) c.remove(); }
 // one watcher for the page: at most once per frame, whatever changed
-let pageT = 0; new MutationObserver(() => { if (pageT) return; pageT = requestAnimationFrame(() => { pageT = 0; for (const f of [decoratePartners, houseBar, phCtlTidy, accessNotice, companyDenied, drawCongress, drawCongressPage, linkAddress, avatarize, drawTripPage, drawHome, maybeAskPlan, phMini, companyLayout, brandsFromImports, compactCompany, countryTradeLine]) { try { f(); } catch { /* part of the page redrawing */ } } }); }).observe(document.body, { childList: !0, subtree: !0, attributes: !0, attributeFilter: ['hidden'] });
+let pageT = 0; new MutationObserver(() => { if (pageT) return; pageT = requestAnimationFrame(() => { pageT = 0; for (const f of [decoratePartners, houseBar, phCtlTidy, accessNotice, companyDenied, drawCongress, drawCongressPage, linkAddress, avatarize, drawTripPage, drawHome, maybeAskPlan, phMini, companyLayout, brandsFromImports, compactCompany, countryTradeLine, phFit, ...(window.__m3 ? [personEditButtons, cgAugment, actLogKick] : []), ...(window.__cm3 && window.__cm3.watch ? window.__cm3.watch : []), ...(window.__cm3 ? [window.__cm3.countryRegChip] : [])]) { try { f(); } catch { /* part of the page redrawing */ } } }); }).observe(document.body, { childList: !0, subtree: !0, attributes: !0, attributeFilter: ['hidden'] });
 // ---- 🎪 Congresses per country (country Overview) ----
 let cgKey = '';
 function drawCongress() {
@@ -2067,9 +2149,9 @@ function enrichPanel(cid, name, F, place) {
   const have = { email: new Set(String(F.get('Email') || '').toLowerCase().split(/\n|, /).filter(Boolean)), phone: new Set(String(F.get('Phone number') || '').split(/\n|, /).map((p) => C.digits(p).slice(-8)).filter(Boolean)), site: String(F.get('Website') || '').toLowerCase(), linkedin: String(F.get('LinkedIn') || ''), facebook: String(F.get('Facebook') || ''), instagram: String(F.get('Instagram') || ''), address: String(F.get('Address') || '') };
   const field = { email: 'Email', phone: 'Phone number', whatsapp: 'Phone number', linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram', address: 'Address', website: 'Website' };
   const known = (k, v) => (k === 'email' ? have.email.has(low(v)) : k === 'phone' || k === 'whatsapp' ? have.phone.has(C.digits(v).slice(-8)) : k === 'address' ? !!have.address && low(have.address).includes(low(v).slice(0, 12)) : have[k] && low(have[k]).includes(low(v).replace(/^https?:\/\/(www\.)?/, '').slice(0, 20)));
-  const addTo = async (k, v, btn) => { btn.disabled = !0; const f = field[k]; let val = v;
+  const addTo = async (k, v, btn, auto) => { btn.disabled = !0; const f = field[k]; let val = v; window.__cmAuto = !!auto;
     if (f === 'Email' || f === 'Phone number') { const cur = String(F.get(f) || '').split(/\n|, /).map((x) => x.trim()).filter(Boolean); val = [...new Set([...cur, v])]; }
-    try { await C.nhCall('update_record', { folderId: C.NH_FOLDER, recordId: cid, fieldKeys: 'label', fields: { [f]: val } }); btn.textContent = '✓ Added'; F.set(f, Array.isArray(val) ? val.join('\n') : val); dash.refresh('company_record'); } catch (e) { btn.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } };
+    try { await C.nhCall('update_record', { folderId: C.NH_FOLDER, recordId: cid, fieldKeys: 'label', fields: { [f]: val } }); btn.textContent = '✓ Added'; F.set(f, Array.isArray(val) ? val.join('\n') : val); dash.refresh('company_record'); } catch (e) { btn.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } window.__cmAuto = !1; };
   const show = (items, note) => {
     out.replaceChildren(); if (note) out.append(el('div', 'hint', note));
     const ICON = { email: '✉', phone: '☎', whatsapp: '💬', linkedin: '💼', facebook: '📘', instagram: '📸', address: '📍', website: '🌐', person: '👤', result: '🔗' };
@@ -2079,9 +2161,9 @@ function enrichPanel(cid, name, F, place) {
       const v = el('div', 'v'); if (x.kind === 'result') { const a = el('a', null, x.value); a.href = x.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; v.append(a, el('div', 'mut', x.snippet || '')); } else v.append(x.kind === 'person' ? `${x.value}${x.title ? ` · ${x.title}` : ''}${x.email ? ` · ${x.email}` : ''}${x.phone ? ` · ${x.phone}` : ''}` : x.value);
       r.append(v);
       if (x.kind === 'result') r.append(el('span'));
-      else if (x.kind === 'person') { const b = el('button', 'cm-mini', '＋ Add person'); b.type = 'button'; b.addEventListener('click', async () => { b.disabled = !0; const w = x.value.split(/\s+/); try { await C.nhCall('create_record', { folderId: '6682e9b8b6386800f586c0b0', fieldKeys: 'label', fields: Object.fromEntries(Object.entries({ Name: x.value, 'First name': w[0], 'Last name': w.slice(1).join(' ') || undefined, Title: x.title || undefined, Company: [cid], Email: x.email ? [x.email] : undefined, 'Phone number': x.phone ? [x.phone] : undefined }).filter(([, y]) => y != null)) }); b.textContent = '✓ Added'; dash.refresh('company_contacts'); } catch (e) { b.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } }); r.append(b); }
+      else if (x.kind === 'person') { const b = el('button', 'cm-mini', '＋ Add person'); b.type = 'button'; b.addEventListener('click', async () => { b.disabled = !0; window.__cmAuto = x.source !== 'pasted text'; setTimeout(() => { window.__cmAuto = !1; }, 8000); const w = x.value.split(/\s+/); try { await C.nhCall('create_record', { folderId: '6682e9b8b6386800f586c0b0', fieldKeys: 'label', fields: Object.fromEntries(Object.entries({ Name: x.value, 'First name': w[0], 'Last name': w.slice(1).join(' ') || undefined, Title: x.title || undefined, Company: [cid], Email: x.email ? [x.email] : undefined, 'Phone number': x.phone ? [x.phone] : undefined }).filter(([, y]) => y != null)) }); b.textContent = '✓ Added'; dash.refresh('company_contacts'); } catch (e) { b.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } }); r.append(b); }
       else if (known(x.kind, x.value)) r.append(el('span', 'mut', 'already in NetHunt'));
-      else { const b = el('button', 'cm-mini', '＋ Add'); b.type = 'button'; b.title = `Add to the company’s ${field[x.kind]}`; b.addEventListener('click', () => addTo(x.kind, x.value, b)); r.append(b); }
+      else { const b = el('button', 'cm-mini', '＋ Add'); b.type = 'button'; b.title = `Add to the company’s ${field[x.kind]}`; b.addEventListener('click', () => addTo(x.kind, x.value, b, x.source !== 'pasted text')); r.append(b); }
       x.source && x.kind !== 'result' && r.append(el('div', 'src', `from ${String(x.source).replace(/^https?:\/\/(www\.)?/, '').slice(0, 70)}`)); out.append(r); });
   };
   // 🔎 find on the web (website)
@@ -2107,185 +2189,11 @@ function enrichPanel(cid, name, F, place) {
   return box;
 }
 
-// ===================== 🧳 Trip planner =====================
-const TP_HOME = { Ankara: [32.86, 39.93], Istanbul: [28.98, 41.01] };
-const tpS = { sel: null, q: '', view: 'cal' }; let tpKey = '';
-const TP_ST = { draft: ['💭', 'Idea', 'Just an idea — not decided'], planned: ['🗓', 'Planned', 'Decided, not booked yet'], confirmed: ['✅', 'Confirmed', 'Booked: flights / meetings confirmed'] };
-const tpSt = (p) => TP_ST[p.status] ? p.status : 'draft';
-const tpSave = (plans) => { __cm.tripPlans = plans; tpKey = ''; };
-const tpDay = (iso, k) => { const d = new Date(`${iso}T12:00:00`); d.setDate(d.getDate() + k); return d.toISOString().slice(0, 10); };
-function tpRescale(p, total) { total = Math.max(1, Math.min(90, Math.round(total))); const L = p.legs || []; if (!L.length) return { ...p, days: total };
-  const sum = L.reduce((a, l) => a + (Number(l.days) || 1), 0); let legs = L.map((l) => ({ ...l, days: Math.max(1, Math.round(((Number(l.days) || 1) * total) / sum)) }));
-  let diff = total - legs.reduce((a, l) => a + l.days, 0); while (diff !== 0) { const order = legs.map((l, k) => k).sort((x, y) => legs[y].days - legs[x].days); let moved = !1; for (const k of order) { if (diff > 0) { legs[k].days++; diff--; moved = !0; break; } if (legs[k].days > 1) { legs[k].days--; diff++; moved = !0; break; } } if (!moved) break; }
-  return { ...p, legs, days: legs.reduce((a, l) => a + l.days, 0) }; }
-function tripInfo(p) { const n = (p.legs || []).length ? p.legs.reduce((a, l) => a + (Number(l.days) || 0), 0) : p.days || 0; const end = tpDay(p.start, Math.max(1, n) - 1); const t0 = new Date().toISOString().slice(0, 10);
-  let k = 0, here = null; (p.legs || []).forEach((l) => { const a = tpDay(p.start, k); k += Number(l.days) || 0; const b = tpDay(p.start, k - 1); if (t0 >= a && t0 <= b) here = { ...l, from: a, to: b }; });
-  const day = t0 >= p.start && t0 <= end ? Math.round((new Date(`${t0}T12:00:00`) - new Date(`${p.start}T12:00:00`)) / 864e5) + 1 : null;
-  return { end, n, now: day != null, day, here, past: end < t0, inDays: Math.round((new Date(`${p.start}T12:00:00`) - new Date(`${t0}T12:00:00`)) / 864e5) }; }
-function drawTripPage() {
-  const root = document.getElementById('trip-view'); if (!root || root.classList.contains('cm-hidden')) return;
-  const C = __cm; const el = C.el; const hol = dash.data('holidays_year'); const cg = dash.data('congresses'); const ws = dash.data('world_shapes'); const cs = C.rowsOf('countries'); const ps = C.rowsOf('pipeline_stages');
-  const plans = (C.tripPlans || []).slice(); if (!tpS.sel && plans.length) tpS.sel = plans[0].id; const tr = plans.find((p) => p.id === tpS.sel) || null;
-  const key = `${hol.status}|${cg.status}|${ws.status}|${cs.length}|${ps.length}|${JSON.stringify(plans)}|${tpS.sel}|${tpS.q}`; if (key === tpKey && root.childNodes.length) return; tpKey = key;
-  root.replaceChildren(); const wrap = el('div', 'cm-cgp'); root.append(wrap);
-  const hd = el('div', 'cm-cghd'); hd.append(el('h1', null, '🧳 Trip planner'), el('div', 'mut', 'Pick the countries and dates — see each stop’s potential, holidays, congresses and flights.')); wrap.append(hd);
-  const upd = (fn) => { const ps2 = (C.tripPlans || []).map((p) => (p.id === tpS.sel ? fn({ ...p, legs: p.legs.map((l) => ({ ...l })) }) : p)); tpSave(ps2); drawTripPage(); };
-  // 📅 my schedule: a calendar timeline (or the list) of every coming trip — idea, planned or confirmed
-  { const pl = plans.filter((p) => p.legs && p.legs.length).map((p) => ({ p, i: tripInfo(p) })).sort((x, y) => x.p.start.localeCompare(y.p.start)); const up = pl.filter((x) => !x.i.past);
-    if (up.length) { const sc = el('div', 'cm-tpsched'); const hd2 = el('div', 'cm-h2row'); hd2.append(el('div', 'cm-cgk', '📅 My schedule'));
-      const tg = el('div', 'cm-chips'); [['cal', '🗓 Calendar'], ['list', '☰ List']].forEach(([k, l]) => { const b = el('button', 'cm-chip', l); b.type = 'button'; b.setAttribute('aria-pressed', String(tpS.view === k)); b.addEventListener('click', () => { tpS.view = k; tpKey = ''; drawTripPage(); }); tg.append(b); });
-      hd2.append(tg); sc.append(hd2);
-      const legend = el('div', 'cm-tplegend'); Object.entries(TP_ST).forEach(([k, [ic, l, d]]) => { const x = el('span', `st-${k}`); x.title = d; x.append(el('i'), `${ic} ${l}`); legend.append(x); }); legend.append(el('span', 'mut', '· 🎪 your starred congresses · │ today'));
-      if (tpS.view === 'cal') {
-        const DAY = 864e5; const t0 = new Date(); t0.setHours(12, 0, 0, 0); const first = new Date(t0.getFullYear(), t0.getMonth(), 1, 12);
-        const lastEnd = Math.max(...up.map((x) => +new Date(`${x.i.end}T12:00:00`))); const lastM = new Date(lastEnd); const endD = new Date(lastM.getFullYear(), lastM.getMonth() + 1, 0, 12); const minEnd = new Date(first.getFullYear(), first.getMonth() + 3, 0, 12); const end = new Date(Math.max(+endD, +minEnd));
-        const nDays = Math.round((end - first) / DAY) + 1; const W = 24; const dx = (iso) => Math.round((new Date(`${iso}T12:00:00`) - first) / DAY) * W;
-        const outer = el('div', 'cm-tlwrap'); const tl = el('div', 'cm-tl'); tl.style.width = `${nDays * W + 8}px`;
-        // months + days
-        const mo = el('div', 'cm-tlmonths'); for (let d = new Date(first); d <= end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1, 12)) { const mEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0, 12); const x = el('div', 'm', d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })); x.style.left = `${dx(localDay(+d))}px`; x.style.width = `${(Math.min(+mEnd, +end) - +d) / DAY * W + W}px`; mo.append(x); } tl.append(mo);
-        const dd = el('div', 'cm-tldays'); for (let k = 0; k < nDays; k++) { const d = new Date(+first + k * DAY); const x = el('div', `d${[0, 6].includes(d.getDay()) ? ' we' : ''}${d.getDate() === 1 ? ' m1' : ''}`); x.style.left = `${k * W}px`; x.style.width = `${W}px`; x.append(el('b', null, String(d.getDate())), el('span', null, 'SMTWTFS'[d.getDay()])); dd.append(x); } tl.append(dd);
-        const grid = el('div', 'cm-tlgrid'); for (let k = 0; k < nDays; k++) { const d = new Date(+first + k * DAY); if ([0, 6].includes(d.getDay())) { const x = el('i', 'we'); x.style.left = `${k * W}px`; x.style.width = `${W}px`; grid.append(x); } if (d.getDate() === 1) { const x = el('i', 'mline'); x.style.left = `${k * W}px`; grid.append(x); } } tl.append(grid);
-        const rows = el('div', 'cm-tlrows'); const colors = ['#4f8cff', '#3fae7a', '#e39b2d', '#c084fc', '#f472b6', '#22d3ee', '#a3e635', '#f87171'];
-        up.forEach(({ p, i: inf }) => { const r = el('div', 'cm-tlrow'); const st = tpSt(p); const bar = el('button', `cm-tlbar st-${st}${p.id === tpS.sel ? ' on' : ''}`); bar.type = 'button'; bar.style.left = `${dx(p.start)}px`; bar.style.width = `${Math.max(1, inf.n) * W - 2}px`;
-          bar.title = `${TP_ST[st][0]} ${p.name} · ${TP_ST[st][1]} · ${new Date(`${p.start}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(`${inf.end}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`; bar.addEventListener('click', () => { tpS.sel = p.id; tpKey = ''; drawTripPage(); });
-          let k0 = 0; p.legs.forEach((l, li) => { const seg = el('span', 'seg'); seg.style.width = `${(Number(l.days) || 0) * W}px`; seg.style.background = colors[li % colors.length]; const c0 = cs.find((x) => x.iso === l.iso) || { country: l.iso }; seg.title = `${c0.country}${l.cities && l.cities.length ? ` · ${l.cities.join(', ')}` : ''} · ${l.days} d`; seg.append(`${C.flag(l.iso)}${(Number(l.days) || 0) >= 3 ? ` ${c0.country}` : ''}`); bar.append(seg); k0 += Number(l.days) || 0; });
-          const lab = el('span', 'lab', `${TP_ST[st][0]} ${p.name}`); r.append(bar, lab); lab.style.left = `${dx(p.start) + Math.max(1, inf.n) * W + 8}px`; rows.append(r); });
-        // starred congresses (going / maybe / following) on their own row
-        const cgd = dash.data('congresses'); const star = C.cgStars || {}; const cgs2 = ('ok' === cgd.status ? cgd.data : []).filter((x) => star[x.event_id] && x.start && x.start >= localDay(+first) && x.start <= localDay(+end));
-        if (cgs2.length) { const r = el('div', 'cm-tlrow cg'); const seen = new Set(); cgs2.forEach((x) => { if (seen.has(x.event_id)) return; seen.add(x.event_id); const n = Math.max(1, Math.round((new Date(x.end || x.start) - new Date(x.start)) / DAY) + 1); const b = el('a', `cm-tlcg ${star[x.event_id].level || ''}`); b.href = x.url || '#'; b.target = '_blank'; b.rel = 'noopener noreferrer'; b.style.left = `${dx(x.start)}px`; b.style.minWidth = `${n * W - 2}px`; b.title = `${x.series} · ${x.city || x.country} · ${x.start}`; b.append(`🎪 ${C.flag(x.iso)} ${x.series}`); r.append(b); }); rows.append(r); }
-        tl.append(rows);
-        const now = el('i', 'cm-tlnow'); now.style.left = `${dx(localDay()) + W / 2}px`; tl.append(now);
-        outer.append(tl); sc.append(outer, legend); setTimeout(() => { outer.scrollLeft = Math.max(0, dx(localDay()) - 60); }, 0);
-      } else {
-        up.forEach(({ p, i: inf }, k) => { const b = el('button', `cm-tprow${p.id === tpS.sel ? ' on' : ''} st-${tpSt(p)}`); b.type = 'button'; b.addEventListener('click', () => { tpS.sel = p.id; tpKey = ''; drawTripPage(); });
-          const cs2 = C.rowsOf('countries'); const here = inf.here ? `${C.flag(inf.here.iso)} ${(cs2.find((x) => x.iso === inf.here.iso) || {}).country || inf.here.iso}${inf.here.cities && inf.here.cities.length ? ` · ${inf.here.cities.join(', ')}` : ''}` : '';
-          b.append(el('span', `tag ${inf.now ? 'now' : k === up.findIndex((x) => !x.i.now) ? 'next' : ''}`, inf.now ? 'Now' : k === up.findIndex((x) => !x.i.now) ? 'Next' : 'Later'), el('b', null, p.name), el('span', 'mut', `${new Date(`${p.start}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} – ${new Date(`${inf.end}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })} · ${p.legs.map((l) => C.flag(l.iso)).join(' ')}`), el('span', 'mut', inf.now ? `day ${inf.day} of ${inf.n}${here ? ` · today: ${here}` : ''}` : `in ${inf.inDays} days`), el('span', 'st', `${TP_ST[tpSt(p)][0]} ${TP_ST[tpSt(p)][1]}`)); sc.append(b); });
-        sc.append(legend); }
-      wrap.append(sc); } }
-  // trips
-  const bar = el('div', 'cm-chips'); plans.forEach((p) => { const b = el('button', 'cm-chip', `${TP_ST[tpSt(p)][0]} ${p.name}`); b.type = 'button'; b.setAttribute('aria-pressed', String(p.id === tpS.sel)); b.addEventListener('click', () => { tpS.sel = p.id; tpKey = ''; drawTripPage(); }); bar.append(b); });
-  const nb = el('button', 'cm-chip', '＋ New trip'); nb.type = 'button'; nb.addEventListener('click', () => { const d0 = new Date(); d0.setDate(d0.getDate() + ((8 - d0.getDay()) % 7 || 7) + 14); const p = { id: `T${Date.now()}`, name: `Trip ${d0.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}`, from: 'Ankara', start: d0.toISOString().slice(0, 10), days: 14, legs: [] }; tpS.sel = p.id; tpSave([...(C.tripPlans || []), p]); drawTripPage(); }); bar.append(nb); wrap.append(bar);
-  if (!tr) { wrap.append(el('div', 'cm-cgempty', '🧳 Tap “＋ New trip”, choose the dates and add countries. For each stop you’ll see working days, public holidays, congresses nearby, how many companies are waiting there, and links to search direct flights.')); return; }
-  // editor
-  const ed = el('div', 'cm-tped'); const inp = (v, type, on, ph, w) => { const x = el('input'); x.type = type; x.value = v ?? ''; x.placeholder = ph || ''; if (w) x.style.width = w; x.addEventListener('change', () => on(x.value)); return x; };
-  const r1 = el('div', 'cm-cgfl'); r1.append(inp(tr.name, 'text', (v) => upd((p) => ({ ...p, name: v || p.name })), 'Trip name', '14rem'));
-  const fr = el('select', 'cm-phtpl'); ['Ankara', 'Istanbul'].forEach((c) => fr.append(new Option(`From ${c}`, c))); fr.value = tr.from || 'Ankara'; fr.addEventListener('change', () => upd((p) => ({ ...p, from: fr.value }))); r1.append(fr);
-  const okDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && +v.slice(0, 4) >= 2020 && +v.slice(0, 4) <= 2100; // ignore half-typed dates
-  const total = (tr.legs || []).length ? tr.legs.reduce((a, l) => a + (Number(l.days) || 0), 0) : tr.days;
-  const dbox = el('div', 'cm-tpdates'); const sIn = el('input'); sIn.type = 'date'; sIn.value = tr.start; sIn.title = 'First day'; sIn.addEventListener('change', () => okDate(sIn.value) && upd((p) => ({ ...p, start: sIn.value })));
-  const eIn = el('input'); eIn.type = 'date'; eIn.value = tpDay(tr.start, Math.max(1, total) - 1); eIn.min = tr.start; eIn.title = 'Last day — the stops are resized to fit';
-  eIn.addEventListener('change', () => { if (!okDate(eIn.value)) return; const n = Math.round((new Date(`${eIn.value}T12:00:00`) - new Date(`${tr.start}T12:00:00`)) / 864e5) + 1; if (n >= 1) upd((p) => tpRescale(p, n)); });
-  const sh = (d, l, t) => { const b = el('button', 'cm-mini', l); b.type = 'button'; b.title = t; b.addEventListener('click', () => upd((p) => ({ ...p, start: tpDay(p.start, d) }))); return b; };
-  dbox.append(sh(-7, '«', 'Move the trip 1 week earlier'), sh(-1, '‹', '1 day earlier'), sIn, el('span', 'mut', '→'), eIn, sh(1, '›', '1 day later'), sh(7, '»', 'Move the trip 1 week later')); r1.append(dbox);
-  [[7, '1 week'], [14, '2 weeks'], [21, '3 weeks']].forEach(([n, l]) => { const b = el('button', 'cm-chip', l); b.type = 'button'; b.setAttribute('aria-pressed', String(total === n)); b.addEventListener('click', () => upd((p) => tpRescale(p, n))); r1.append(b); });
-  r1.append(inp(total, 'number', (v) => Number(v) > 0 && upd((p) => tpRescale(p, Number(v))), 'days', '4.5rem'), el('span', 'mut', 'days'));
-  const pb = el('div', 'cm-seg cm-tpstseg'); Object.entries(TP_ST).forEach(([k, [ic, l, d]]) => { const b = el('button', null, `${ic} ${l}`); b.type = 'button'; b.title = d; b.setAttribute('aria-pressed', String(tpSt(tr) === k)); b.addEventListener('click', () => upd((p) => ({ ...p, status: k }))); pb.append(b); }); r1.append(pb);
-  const del = el('button', 'cm-mini', '🗑 Delete trip'); del.type = 'button'; del.addEventListener('click', () => { if (del.dataset.sure !== '1') { del.dataset.sure = '1'; del.textContent = 'confirm delete'; return; } tpSave((C.tripPlans || []).filter((p) => p.id !== tr.id)); tpS.sel = null; drawTripPage(); }); r1.append(del);
-  ed.append(r1);
-  // add countries
-  const r2 = el('div', 'cm-cgfl'); const q = el('input', 'cm-asearch'); q.placeholder = '＋ Add a country — type a name…'; q.value = tpS.q; q.setAttribute('list', 'tp-c'); const dl = el('datalist'); dl.id = 'tp-c'; cs.forEach((c) => dl.append(new Option(c.country, c.country)));
-  q.addEventListener('change', () => { const c = cs.find((x) => low(x.country) === low(q.value) || low(x.iso) === low(q.value)); if (c && !tr.legs.some((l) => l.iso === c.iso)) { tpS.q = ''; upd((p) => { const tot = p.legs.length ? p.legs.reduce((a, l) => a + (Number(l.days) || 0), 0) : p.days; return p.legs.length ? tpRescale({ ...p, legs: [...p.legs, { iso: c.iso, days: Math.max(1, Math.round(tot / (p.legs.length + 1))) }] }, tot) : { ...p, legs: [{ iso: c.iso, days: tot }] }; }); } });
-  r2.append(q, dl);
-  const cityKey = (c) => String(c || '').split(',')[0].trim().replace(/^(distrito|ciudad|provincia|municipio|departamento) de\s+/i, '').replace(/\s+(city|ciudad)$/i, '');
-  const citiesOf = (iso) => { const m = new Map(); const st = (x) => Math.max(x.stage_next || 0, x.stage_dunitech || 0, x.stage_motion || 0);
-    ps.filter((x) => x.iso === iso && cityKey(x.city)).forEach((x) => { const k = low(cityKey(x.city)); const o = m.get(k) || { name: cityKey(x.city), n: 0, eng: 0, hot: 0, cg: 0 }; o.n++; if (st(x) >= 3) o.eng++; if (st(x) >= 4 && st(x) < 6) o.hot++; m.set(k, o); });
-    ('ok' === cg.status ? cg.data : []).filter((x) => x.iso === iso && x.city).forEach((x) => { const k = low(cityKey(x.city)); const o = m.get(k) || { name: cityKey(x.city), n: 0, eng: 0, hot: 0, cg: 0 }; o.cg++; m.set(k, o); });
-    return [...m.values()].map((o) => ({ ...o, score: o.hot * 5 + o.eng * 3 + o.n * 0.3 + o.cg })).sort((x, y) => y.score - x.score); };
-  const pot = (iso) => { const r = ps.filter((x) => x.iso === iso); const st = (x) => Math.max(x.stage_next || 0, x.stage_dunitech || 0, x.stage_motion || 0); return { n: r.length, eng: r.filter((x) => st(x) >= 3).length, hot: r.filter((x) => st(x) >= 4 && st(x) < 6).length }; };
-  if (tr.legs.length > 1) { const sp = el('button', 'cm-chip', '⚖ Split days by potential'); sp.type = 'button'; sp.title = 'More days where more companies are engaged'; sp.addEventListener('click', () => upd((p) => { const w = p.legs.map((l) => 1 + pot(l.iso).eng * 2 + pot(l.iso).hot * 3 + pot(l.iso).n * 0.1); const tot = w.reduce((a2, b) => a2 + b, 0); let left = p.days; p.legs.forEach((l, k) => { l.days = k === p.legs.length - 1 ? Math.max(1, left) : Math.max(1, Math.round((p.days * w[k]) / tot)); left -= l.days; }); return p; })); r2.append(sp); }
-  if (tr.legs.length > 1 && 'ok' === ws.status && window.d3) { const so = el('button', 'cm-chip', '↺ Shortest route'); so.type = 'button'; so.title = 'Order the stops so the flying is shortest'; so.addEventListener('click', () => upd((p) => { const cen = new Map(ws.data.map((f) => [f.iso, d3.geoCentroid({ type: 'Feature', geometry: { type: f.type, coordinates: f.coords } })])); const home = TP_HOME[p.from] || TP_HOME.Ankara; const P2 = (l) => cen.get(l.iso) || home; const len = (o) => { let a3 = home, t = 0; o.forEach((l) => { t += d3.geoDistance(a3, P2(l)); a3 = P2(l); }); return t + d3.geoDistance(a3, home); };
-      let best = p.legs.slice();
-      if (p.legs.length <= 7) { const perm = (arr) => (arr.length <= 1 ? [arr] : arr.flatMap((x, k) => perm([...arr.slice(0, k), ...arr.slice(k + 1)]).map((r) => [x, ...r]))); perm(p.legs).forEach((o) => { if (len(o) < len(best)) best = o; }); } // every order, round trip from home
-      else { let at = home; const left = p.legs.slice(); best = []; while (left.length) { left.sort((x, y) => d3.geoDistance(at, P2(x)) - d3.geoDistance(at, P2(y))); const n = left.shift(); best.push(n); at = P2(n); } }
-      p.legs = best; return p; })); r2.append(so); }
-  ed.append(r2);
-  if (tr.legs.length > 1) { const ord = el('div', 'cm-tporder'); ord.append(el('span', 'mut', 'Order:'));
-    let dragFrom = null;
-    tr.legs.forEach((l, li) => { const c0 = cs.find((x) => x.iso === l.iso) || { country: l.iso }; const chip = el('span', 'cm-tpchip'); chip.draggable = !0; chip.title = 'Drag to change the order';
-      const mv = (dv) => upd((p) => { const x = p.legs.splice(li, 1)[0]; p.legs.splice(li + dv, 0, x); return p; });
-      const lb = el('button', 'cm-mini', '◀'); lb.type = 'button'; lb.disabled = li === 0; lb.title = 'Earlier'; lb.addEventListener('click', () => mv(-1));
-      const rb = el('button', 'cm-mini', '▶'); rb.type = 'button'; rb.disabled = li === tr.legs.length - 1; rb.title = 'Later'; rb.addEventListener('click', () => mv(1));
-      chip.append(lb, el('b', null, `${li + 1}`), ` ${C.flag(l.iso)} ${c0.country} `, el('span', 'mut', `${l.days}d`), rb);
-      chip.addEventListener('dragstart', (e) => { dragFrom = li; e.dataTransfer.effectAllowed = 'move'; chip.classList.add('drag'); }); chip.addEventListener('dragend', () => chip.classList.remove('drag'));
-      chip.addEventListener('dragover', (e) => { e.preventDefault(); chip.classList.add('over'); }); chip.addEventListener('dragleave', () => chip.classList.remove('over'));
-      chip.addEventListener('drop', (e) => { e.preventDefault(); chip.classList.remove('over'); if (dragFrom == null || dragFrom === li) return; const from = dragFrom; dragFrom = null; upd((p) => { const x = p.legs.splice(from, 1)[0]; p.legs.splice(li, 0, x); return p; }); });
-      ord.append(chip); if (li < tr.legs.length - 1) ord.append(el('span', 'mut', '→')); });
-    ed.append(ord); }
-  const used = tr.legs.reduce((a2, l) => a2 + (Number(l.days) || 0), 0);
-  if (tr.legs.length) ed.append(el('div', 'mut', `${tr.legs.length} stop${tr.legs.length === 1 ? '' : 's'} · ${used} days · ${new Date(`${tr.start}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} → ${new Date(`${tpDay(tr.start, Math.max(1, used) - 1)}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · change the total and the stops are resized; change a stop and the total follows`));
-  wrap.append(ed);
-  if (!tr.legs.length) { wrap.append(el('div', 'cm-cgempty', 'Add the first country above.')); return; }
-  // day by day
-  const H = new Map(); ('ok' === hol.status ? hol.data : []).forEach((x) => { const k = `${x.iso}|${x.date}`; (H.get(k) || H.set(k, []).get(k)).push(x); });
-  const CG = ('ok' === cg.status ? cg.data : []).filter((x) => x.start);
-  let k0 = 0; const legs = tr.legs.map((l) => { const a2 = tpDay(tr.start, k0); k0 += Number(l.days) || 0; return { ...l, from: a2, to: tpDay(tr.start, k0 - 1) }; });
-  const strip = el('div', 'cm-tpstrip'); const colors = ['#4f8cff', '#3fae7a', '#e39b2d', '#c084fc', '#f472b6', '#22d3ee', '#a3e635', '#f87171'];
-  legs.forEach((l, li) => { for (let k = 0; k < l.days; k++) { const d = tpDay(l.from, k); const dt = new Date(`${d}T12:00:00`); const we = [0, 6].includes(dt.getDay()); const hs = (H.get(`${l.iso}|${d}`) || []).filter((x) => x.pub); const cgs = CG.filter((x) => x.iso === l.iso && x.start <= d && (x.end || x.start) >= d);
-    const c = el('div', `day${we ? ' we' : ''}${hs.length ? ' hol' : ''}`); c.style.borderTopColor = colors[li % colors.length]; c.title = `${dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })} · ${(cs.find((x) => x.iso === l.iso) || {}).country || l.iso}${hs.length ? ` · 🔴 ${hs.map((x) => x.name).join(', ')}` : ''}${cgs.length ? ` · 🎪 ${cgs.map((x) => x.series).join(', ')}` : ''}${we ? ' · weekend' : ''}`;
-    c.append(el('b', null, String(dt.getDate())), el('span', null, 'SMTWTFS'[dt.getDay()]), el('i', null, `${k === 0 ? C.flag(l.iso) : ''}${hs.length ? '🔴' : ''}${cgs.length ? '🎪' : ''}`)); strip.append(c); } });
-  const sw = el('div', 'cm-tablewrap'); sw.append(strip); wrap.append(sw, el('div', 'mut cm-logidle', 'Each square is a day · grey = weekend · 🔴 public holiday · 🎪 congress · flag = travel day to that country'));
-  // map with the route
-  if ('ok' === ws.status && window.d3) try {
-    const W = 960, Hh = 380; const svg = d3.create('svg').attr('viewBox', `0 0 ${W} ${Hh}`).attr('class', 'cm-cgmap');
-    const feats = ws.data.filter((f) => f.iso !== 'AQ').map((f) => ({ type: 'Feature', properties: { iso: f.iso }, geometry: { type: f.type, coordinates: f.coords } }));
-    const pr = d3.geoNaturalEarth1().fitExtent([[6, 6], [W - 6, Hh - 6]], { type: 'FeatureCollection', features: feats }); const path = d3.geoPath(pr); const isos = new Set(tr.legs.map((l) => l.iso));
-    svg.append('g').selectAll('path').data(feats).join('path').attr('d', path).attr('class', (f) => `c${isos.has(f.properties.iso) ? ' has' : ''}`);
-    const cen = new Map(feats.map((f) => [f.properties.iso, d3.geoCentroid(f)])); const home = TP_HOME[tr.from] || TP_HOME.Ankara;
-    const pts = [home, ...tr.legs.map((l) => cen.get(l.iso)).filter(Boolean), home];
-    svg.append('path').datum({ type: 'LineString', coordinates: pts }).attr('d', path).attr('class', 'cm-tproute');
-    pts.slice(0, -1).forEach((pt, k) => { const [x, y] = pr(pt); svg.append('circle').attr('cx', x).attr('cy', y).attr('r', k ? 7 : 5).attr('class', k ? 'cm-tpstop' : 'cm-tphome'); if (k) svg.append('text').attr('x', x).attr('y', y + 3.5).attr('class', 'cm-tpnum').text(String(k)); });
-    const mw = el('div', 'cm-cgmapw'); mw.append(svg.node()); wrap.append(mw);
-  } catch { /* map optional */ }
-  // stops
-  const gf = (fromCity, toCity, date) => `https://www.google.com/travel/flights?q=${encodeURIComponent(`Flights from ${fromCity} to ${toCity} on ${date} one way nonstop`)}`;
-  const capOf = (iso) => (cs.find((x) => x.iso === iso) || {}).capital || (cs.find((x) => x.iso === iso) || {}).country || iso;
-  const cityOf = (iso, l) => (l && l.cities && l.cities.length ? l.cities[0] : capOf(iso)); const lastCity = (l) => (l.cities && l.cities.length ? l.cities[l.cities.length - 1] : capOf(l.iso));
-  const list = el('div', 'cm-cglist'); let prevCity = tr.from || 'Ankara';
-  legs.forEach((l, li) => {
-    const c = cs.find((x) => x.iso === l.iso) || { country: l.iso }; const card = el('div', 'cm-tpcard'); card.style.borderLeftColor = colors[li % colors.length];
-    const days = [...Array(Number(l.days) || 0).keys()].map((k) => tpDay(l.from, k)); const hols = days.flatMap((d) => (H.get(`${l.iso}|${d}`) || []).map((x) => ({ ...x, d })));
-    const pub = hols.filter((x) => x.pub); const work = days.filter((d) => ![0, 6].includes(new Date(`${d}T12:00:00`).getDay()) && !pub.some((x) => x.d === d)).length;
-    const soft = hols.filter((x) => !x.pub && /christmas|easter|holy|semana santa|carnival|carnaval|ramadan|eid|new year/i.test(x.name));
-    const verdict = !days.length ? ['', ''] : pub.length >= 2 || work / days.length < 0.45 ? ['bad', '🔴 Poor timing'] : pub.length || soft.length ? ['mid', '🟠 Check the dates'] : ['ok', '🟢 Good timing'];
-    const P = pot(l.iso);
-    const top = el('div', 'tp1'); top.append(el('span', 'num', String(li + 1)), el('b', null, `${C.flag(l.iso)} ${c.country}`), el('span', 'mut', `${new Date(`${l.from}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} – ${new Date(`${l.to}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}`));
-    const st = el('span', 'cm-tpdays'); const mi = el('button', 'cm-mini', '−'); mi.type = 'button'; mi.addEventListener('click', () => upd((p) => { p.legs[li].days = Math.max(1, (Number(p.legs[li].days) || 1) - 1); p.days = p.legs.reduce((a, l) => a + (Number(l.days) || 0), 0); return p; })); const pl = el('button', 'cm-mini', '+'); pl.type = 'button'; pl.addEventListener('click', () => upd((p) => { p.legs[li].days = (Number(p.legs[li].days) || 0) + 1; p.days = p.legs.reduce((a, l) => a + (Number(l.days) || 0), 0); return p; })); st.append(mi, ` ${l.days} days `, pl); top.append(st);
-    const mv = el('span', 'cm-tpmv'); [['▲', -1], ['▼', 1]].forEach(([t2, dv]) => { const b = el('button', 'cm-mini', t2); b.type = 'button'; b.disabled = li + dv < 0 || li + dv >= legs.length; b.addEventListener('click', () => upd((p) => { const x = p.legs.splice(li, 1)[0]; p.legs.splice(li + dv, 0, x); return p; })); mv.append(b); }); const rm = el('button', 'cm-mini', '✕'); rm.type = 'button'; rm.title = 'Remove this stop'; rm.addEventListener('click', () => upd((p) => { const tot = p.legs.reduce((a, l) => a + (Number(l.days) || 0), 0); p.legs.splice(li, 1); return p.legs.length ? tpRescale(p, tot) : { ...p, days: tot }; })); mv.append(rm); top.append(mv);
-    card.append(top);
-    const facts = el('div', 'tags'); const vb = el('span', `cm-tpv ${verdict[0]}`, verdict[1]); facts.append(vb, el('span', null, `🗓 ${work} working day${work === 1 ? '' : 's'} of ${days.length}`));
-    facts.append(el('span', null, `🏢 ${P.n} companies`), el('span', null, `💬 ${P.eng} engaged+`), el('span', null, `🔥 ${P.hot} interested / negotiating`)); card.append(facts);
-    { const all = citiesOf(l.iso); const chosen = new Set((l.cities || []).map(low)); const best = all[0];
-      const row = el('div', 'cm-tpcities'); row.append(el('span', 'mut', '📍 Cities:'));
-      const toggle = (nm) => upd((p) => { const cur = (p.legs[li].cities || []).slice(); const k = cur.findIndex((x) => low(x) === low(nm)); if (k >= 0) cur.splice(k, 1); else cur.push(nm); p.legs[li].cities = cur; return p; });
-      all.slice(0, 8).forEach((o, k) => { const b = el('button', 'cm-chip', `${chosen.has(low(o.name)) ? '✓ ' : ''}${o.name}`); b.type = 'button'; b.setAttribute('aria-pressed', String(chosen.has(low(o.name))));
-        const bits = [`${o.n} compan${o.n === 1 ? 'y' : 'ies'}`]; o.eng && bits.push(`${o.eng} engaged`); o.hot && bits.push(`${o.hot} hot`); o.cg && bits.push(`🎪 ${o.cg} congress${o.cg === 1 ? '' : 'es'}`);
-        b.append(el('span', 'mut', ` ${o.hot ? `🔥${o.hot}` : o.eng ? `💬${o.eng}` : o.n}${o.cg ? ' 🎪' : ''}`)); b.title = `${o.name}: ${bits.join(' · ')}${k === 0 ? ' — best potential in this country' : ''}`; b.addEventListener('click', () => toggle(o.name)); row.append(b); });
-      const more = all.slice(8); if (more.length) { const sel = el('select', 'cm-phtpl'); sel.append(new Option(`+ ${more.length} more cities`, '')); more.forEach((o) => sel.append(new Option(`${o.name} (${o.n})`, o.name))); sel.addEventListener('change', () => sel.value && toggle(sel.value)); row.append(sel); }
-      card.append(row);
-      if (best && !chosen.size) card.append(el('div', 'sub', `⭐ Best potential: ${best.name} — ${best.n} companies${best.eng ? `, ${best.eng} engaged` : ''}${best.hot ? `, ${best.hot} interested / negotiating` : ''}${best.cg ? `, 🎪 congress city` : ''}. Tap a city to plan it.`));
-      else if (chosen.size > 1) card.append(el('div', 'sub', `Route in ${c.country}: ${(l.cities || []).join(' → ')}`)); }
-    if (hols.length) card.append(el('div', 'sub', `${pub.length ? '🔴' : '🟠'} ${hols.map((x) => `${x.name} (${new Date(`${x.d}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })})`).join(' · ')}`));
-    const near = CG.filter((x) => x.iso === l.iso && (x.end || x.start) >= tpDay(l.from, -14) && x.start <= tpDay(l.to, 14)).sort((x, y) => x.start.localeCompare(y.start));
-    near.forEach((x) => { const inside = x.start <= l.to && (x.end || x.start) >= l.from; const ln = el('div', 'sub'); const a = el('a', null, `🎪 ${x.series}`); a.href = x.url || '#'; a.target = '_blank'; a.rel = 'noopener noreferrer'; ln.append(a, ` · ${new Date(x.start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}${x.end && x.end !== x.start ? `–${new Date(x.end).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : ''}${x.city ? ` · ${x.city}` : ''} — ${inside ? '✅ during your stay: distributors and surgeons in one place' : x.start < l.from ? 'just before you arrive' : 'just after you leave'}`); card.append(ln); });
-    if (!near.length) { const far = CG.filter((x) => x.iso === l.iso && (x.end || x.start) >= tpDay(l.from, -183) && x.start <= tpDay(l.to, 183));
-      const before = far.filter((x) => (x.end || x.start) < l.from).sort((x, y) => y.start.localeCompare(x.start))[0]; const after = far.filter((x) => x.start > l.to).sort((x, y) => x.start.localeCompare(y.start))[0];
-      if (!before && !after) card.append(el('div', 'sub', '🎪 No congress recorded within 6 months of these dates.'));
-      [[before, 'before'], [after, 'after']].forEach(([x, w]) => { if (!x) return; const gap = Math.abs(Math.round((new Date(w === 'before' ? l.from : x.start) - new Date(w === 'before' ? (x.end || x.start) : l.to)) / 864e5)); const ln = el('div', 'sub'); const a2 = el('a', null, `🎪 ${x.series}`); a2.href = x.url || '#'; a2.target = '_blank'; a2.rel = 'noopener noreferrer'; ln.append(w === 'before' ? 'Last before: ' : 'Next after: ', a2, ` · ${new Date(x.start).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}${x.city ? ` · ${x.city}` : ''} — ${gap} days ${w === 'before' ? 'before you arrive' : 'after you leave'}`); card.append(ln); }); }
-    // good months to visit (next 12)
-    const mo = el('div', 'cm-tpmonths'); const d0 = new Date(`${tr.start}T12:00:00`);
-    for (let m = 0; m < 12; m++) { const y = new Date(d0.getFullYear(), d0.getMonth() + m, 1); const ym = y.toISOString().slice(0, 7); const nH = [...H.entries()].filter(([k2, v]) => k2.startsWith(`${l.iso}|${ym}`) && v.some((x) => x.pub)).length; const big = [...H.entries()].some(([k2, v]) => k2.startsWith(`${l.iso}|${ym}`) && v.some((x) => /christmas|easter|holy week|semana santa|carnival|carnaval|ramadan|eid al/i.test(x.name))); const nC = CG.filter((x) => x.iso === l.iso && x.start.slice(0, 7) === ym).length;
-      const cell = el('span', `m ${nH >= 3 || big ? 'bad' : nH ? 'mid' : 'ok'}${ym === l.from.slice(0, 7) ? ' now' : ''}`, y.toLocaleDateString('en-GB', { month: 'short' }).slice(0, 3)); cell.title = `${y.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}: ${nH} public holiday day${nH === 1 ? '' : 's'}${big ? ' (incl. a long holiday period)' : ''}${nC ? ` · 🎪 ${nC} congress${nC === 1 ? '' : 'es'}` : ''}`; if (nC) cell.append(el('i', null, '🎪')); mo.append(cell); }
-    const mrow = el('div', 'sub'); mrow.append('Best months: ', mo); card.append(mrow);
-    const acts = el('div', 'cm-chips'); const f1 = el('a', 'cm-chip', `✈ ${prevCity} → ${cityOf(l.iso, l)}`); f1.href = gf(prevCity, cityOf(l.iso, l), l.from); f1.target = '_blank'; f1.rel = 'noopener noreferrer'; f1.title = 'Google Flights, nonstop first'; acts.append(f1);
-    const bp = el('button', 'cm-chip', '⭐ Best partners'); bp.type = 'button'; bp.addEventListener('click', () => window.cmOpenCountry && window.cmOpenCountry(l.iso)); acts.append(bp);
-    const gc = el('a', 'cm-chip', '📅 Add to calendar'); gc.href = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`✈ ${c.country} — ${tr.name}`)}&dates=${l.from.replace(/-/g, '')}/${tpDay(l.to, 1).replace(/-/g, '')}&location=${encodeURIComponent((l.cities && l.cities.length ? l.cities.join(', ') : capOf(l.iso)) + ', ' + c.country)}`; gc.target = '_blank'; gc.rel = 'noopener noreferrer'; acts.append(gc);
-    card.append(acts); list.append(card); prevCity = lastCity(l);
-  });
-  const last = legs[legs.length - 1]; const back = el('div', 'cm-chips'); const fb = el('a', 'cm-chip', `✈ ${prevCity} → ${tr.from || 'Ankara'} (home)`); fb.href = gf(prevCity, tr.from || 'Ankara', tpDay(last.to, 0)); fb.target = '_blank'; fb.rel = 'noopener noreferrer'; back.append(fb);
-  const og = el('button', 'cm-chip', '🗺 Open these countries together'); og.type = 'button'; og.addEventListener('click', () => window.cmOpenGroup && window.cmOpenGroup(tr.legs.map((x) => x.iso), tr.name)); back.append(og);
-  wrap.append(list, back, el('div', 'mut cm-logidle', '✈ links open Google Flights for that day with nonstop flights first — if none show, there is no direct flight that day. Holidays: Google’s public-holiday calendars, 2026–2027.'));
-}
-
+// 🧳 Trip planner lives in app3 — these forward to it
+function drawTripPage(...a) { return window.__cm3 && window.__cm3.drawTripPage ? window.__cm3.drawTripPage(...a) : undefined; }
+function tpSt(p) { return window.__cm3 && window.__cm3.tpSt ? window.__cm3.tpSt(p) : 'idea'; }
+function tripInfo(p) { return window.__cm3 && window.__cm3.tripInfo ? window.__cm3.tripInfo(p) : { past: !0 }; }
+const TP_ST = new Proxy({}, { get: (_, k) => ((window.__cm3 && window.__cm3.TP_ST) || {})[k] || ['', ''] });
 // ===================== simplify & decide: Home inbox, data health, saved views, feature usage, one place per fact, short company page, weekly report =====================
 // --- 🔖 saved views: one tap on Home (kept with your settings, works everywhere) ---
 const VIEW_KEYS = ['view', 'iso', 'tags', 'isos', 'glabel', 'ctab', 'csub', 'ours', 'pcity', 'asg', 'cid', 'phfor'];
@@ -2355,7 +2263,7 @@ function openWeekly(anchor) { const C = __cm; const el = C.el;
     const cp = el('button', 'cm-btn ghost', '⧉ Copy as text'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(weeklyText(W)); cp.textContent = '✓ Copied'; } catch { C.say('Copy not allowed here', !0); } }); row.append(em, cp); body.append(row);
   }, { wide: !0, center: !0 }); }
 // --- extra items in the ⋯ menu ---
-function moreItems() { return [['📰 Weekly report', (ev) => openWeekly(ev.currentTarget)], ['🩺 Data health (all countries)', (ev) => openHealth(ev.currentTarget)], ['🔖 Save this view to Home', () => { __cm.closeSheet(); saveView(); }], ...(isHouse() ? [['📤 Client report (weekly / monthly)', (ev) => openClientReport(ev.currentTarget)], ['📊 Feature usage', (ev) => openUsage(ev.currentTarget)]] : [])]; }
+function moreItems() { return [...(window.__cm3 && window.__cm3.moreExtra ? window.__cm3.moreExtra() : []),...(window.__m3 ? [...(SEQ_ON ? [['🔁 Follow-up sequences', (ev) => openSequences(ev.currentTarget)]] : []), ...(window.__cm3 ? [['🧾 Registrations', (ev) => window.__cm3.openRegistrations(ev.currentTarget)]] : [])] : []), ['📰 Weekly report', (ev) => openWeekly(ev.currentTarget)], ['🩺 Data health (all countries)', (ev) => openHealth(ev.currentTarget)], ['🔖 Save this view to Home', () => { __cm.closeSheet(); saveView(); }], ...(window.cmBoot ? [['🚪 Log out', () => { try { localStorage.removeItem('cmAskedPlan'); } catch { /* storage off */ } location.href = '/cdn-cgi/access/logout'; }]] : []), ...(isHouse() ? [['📤 Client report (weekly / monthly)', (ev) => window.__cm3 && window.__cm3.openClientReport(ev.currentTarget)], ['📊 Feature usage', (ev) => openUsage(ev.currentTarget)]] : [])]; }
 // --- one place for each fact: brands seen in import records but missing from NetHunt's Brand field → add in one tap ---
 function brandsFromImports() {
   if (__cm.curView() !== 'company') return; const card = document.getElementById('company-brands'); if (!card) return; const cid = dash.params().cid; const iv = __cm.rowsOf('import_values').find((x) => x.id === cid);
@@ -2391,135 +2299,257 @@ function tradeLineEl(iso) { const mi = dash.data('market_intel'); const { t, dea
   const tar = __cm.el('span', `cm-trtar ${t == null ? '' : t === 0 ? 'zero' : t <= 0.05 ? 'low' : 'high'}`, `🇹🇷 Tariff on Türkiye: ${t == null ? ('ok' === mi.status ? 'not known' : '…') : `${(t * 100).toFixed(t * 100 % 1 ? 1 : 0)}%`}`); tar.title = 'Import duty this country applies to Turkish orthopaedic implants (joints, HS 9021.31) — ITC Market Access Map, from the Next Shoulder market report';
   const dl = __cm.el('span', `cm-trdeal ${deal.k}`, deal.l); dl.title = deal.d; line.append(tar, dl); return line; }
 
-// ===================== 📤 client report: weekly / monthly activity report for a brand we work for (Next Shoulder, Dunitech, Motion) =====================
-const RPT_BRAND = { next: 'Next Shoulder Solutions', dunitech: 'Dunitech (Oliga)', motion: 'Motion Medical' };
-const rptS = { brand: 'next', period: 'lastweek', by: 'Kavi Kaplan · United Vision', busy: !1, prog: '' };
-const rptAI = () => ((__cm.uiFlags || {}).rptAI || {}); // id → { t: summary, at } kept with your settings for 7 days
-function rptAISet(id, t) { const cur = rptAI(); const cut = Date.now() - 7 * 864e5; const keep = Object.fromEntries(Object.entries(cur).filter(([, v]) => v && v.at > cut).slice(-120)); __cm.uiFlags = { ...(__cm.uiFlags || {}), rptAI: { ...keep, [id]: { t, at: Date.now() } } }; }
-async function aiText(prompt) {
-  if (window.cmBoot) { const r = await fetch('/api/summarize', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt }) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || `HTTP ${r.status}`); return d.text || ''; }
-  const s = window.claude && await window.claude.use('sample'); if (!s) throw new Error('AI isn’t available here'); return ((await s(prompt, { modelTier: 'quick' })) || {}).text || '';
-}
-async function rptMakeAI(D) {
-  const C = __cm; if (rptS.busy) return; rptS.busy = !0; const list = D.rows.filter((r) => r.stage >= 3 || r.replies || r.touches >= 2).slice(0, 30); let done = 0, fail = 0, firstErr = '';
-  const one = async (r) => {
-    try {
-      const tl = await C.nhCall('list_record_timeline', { folderId: C.NH_FOLDER, recordId: r.id, limit: 25, types: ['comment', 'email', 'call', 'chat', 'calendar'] });
-      const ev = ((tl && (tl.events || tl.items)) || []).slice(0, 25).map((e) => { const x = { ...e }; ['id', 'recordId', 'folderId', 'attachments', 'html'].forEach((k) => delete x[k]); return JSON.stringify(x).slice(0, 600); }).join('\n');
-      let rec = {}; try { const g = await C.nhCall('get_record', { folderId: C.NH_FOLDER, recordId: r.id, fieldKeys: 'label' }); rec = (g && g.fields) || {}; } catch { /* timeline is enough */ }
-      const deals = C.rowsOf('deals').filter((d) => String(d.company_ids).split('|').includes(r.id)).map((d) => `${d.name}: ${d.stage}${d.amount ? `, $${d.amount}` : ''}${d.next_steps ? `, next: ${d.next_steps}` : ''}`).join('; ');
-      const prompt = `You write one line for a client activity report. The client is ${RPT_BRAND[D.brand]} (a medical device manufacturer); we are their export and distribution agent. Summarise where things stand with this prospective distributor.\n\nCompany: ${r.company} (${(C.countryOfIso(r.iso) || {}).country || r.iso || ''})\nStatus: ${r.status || '—'}\nNext step in CRM: ${rec['Next step'] || r.next || '—'}\nDeals: ${deals || 'none'}\nCRM notes: ${String(rec.Update || '').slice(0, 1200)} ${String(rec.Notes || '').slice(0, 600)}\n\nRecent CRM timeline (newest first):\n${ev || 'none'}\n\nWrite 1–2 sentences, at most 45 words, in English: what happened recently (meetings, what they asked for, what we sent, prices, documents, orders) and the next step. Write "we" for our team; do not name our team members. No email addresses or phone numbers. No preamble — only the sentences.`;
-      const t = String(await aiText(prompt)).replace(/^["“]|["”]$/g, '').trim(); if (t) rptAISet(r.id, t.slice(0, 400));
-    } catch (e) { fail++; firstErr = firstErr || (C.nhErr ? C.nhErr(e) : String(e)); }
-    done++; rptS.prog = `✨ ${done} of ${list.length}${fail ? ` · ${fail} failed` : ''}`; try { C.sheetDraw && C.sheetDraw(); } catch { /* closed */ }
-  };
-  const q = list.slice(); await Promise.all([0, 1, 2].map(async () => { while (q.length) await one(q.shift()); }));
-  rptS.busy = !1; rptS.prog = fail ? `✨ ${done - fail} summaries ready · ${fail} failed (${String(firstErr).slice(0, 120)})` : `✨ ${done} AI summaries ready`; try { C.sheetDraw && C.sheetDraw(); } catch { /* closed */ }
-}
-function rptRange(k) { const d = new Date(); d.setHours(0, 0, 0, 0); const wd = (d.getDay() + 6) % 7; const mon = new Date(d); mon.setDate(d.getDate() - wd);
-  if (k === 'thisweek') return [+mon, Date.now() + 1, 'This week']; if (k === 'lastweek') { const a = new Date(mon); a.setDate(mon.getDate() - 7); return [+a, +mon, 'Weekly']; }
-  const m0 = new Date(d.getFullYear(), d.getMonth(), 1); if (k === 'thismonth') return [+m0, Date.now() + 1, 'This month']; const lm = new Date(d.getFullYear(), d.getMonth() - 1, 1); return [+lm, +m0, 'Monthly']; }
-const esc = (t) => String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
-function rptData(brand, k) {
-  const C = __cm; const [a, b, kind] = rptRange(k); const len = b - a; const pa = a - len, pb = a; const ps = C.rowsOf('pipeline_stages'); const ch = dash.data('contact_history');
-  needLog(pa); const lg = homeLog() || ('ok' === dash.data('medint_log').status ? dash.data('medint_log').data : null);
-  if (!ps.length || ('ok' !== ch.status && !lg)) return null;
-  // the NetHunt timeline plus everything logged in Medint (WhatsApps opened from Medint aren't always in NetHunt) — one per company, day and channel
-  const LT = { Call: 'call', WhatsApp: 'chat', Email: 'email', Meeting: 'calendar' }; const seenEv = new Set(); const all = [];
-  const addEv = (e) => { const key = `${e.record_id}|${String(e.time).slice(0, 10)}|${e.type}|${e.dir === 'in' ? 'in' : 'out'}`; if (e.dir !== 'in' && seenEv.has(key)) return; seenEv.add(key); all.push(e); };
-  ('ok' === ch.status ? ch.data : []).forEach(addEv);
-  (lg || []).filter((r) => !r.voided && LT[r.action] && r.company_id).forEach((r) => addEv({ record_id: r.company_id, time: new Date(r.epoch).toISOString(), type: LT[r.action], dir: 'out', preview: '' }));
-  const SF = { dunitech: 'status', next: 'next_status', motion: 'motion_status' }[brand]; const stg = (r) => r[`stage_${brand}`] || 0; const stName = (r) => r[`status_${brand}`] || r[SF] || ''; const mine = new Map(ps.filter((r) => stg(r) >= 2).map((r) => [r.id, r]));
-  const CH = { call: 'Calls', chat: 'WhatsApp', email: 'Emails', calendar: 'Meetings' };
-  const ev = all.filter((e) => mine.has(e.record_id) && CH[e.type]); const inP = ev.filter((e) => +new Date(e.time) >= a && +new Date(e.time) < b); const inPrev = ev.filter((e) => +new Date(e.time) >= pa && +new Date(e.time) < pb);
-  const kpi = (E) => ({ cos: new Set(E.filter((e) => e.type !== 'calendar' || +new Date(e.time) < Date.now()).map((e) => e.record_id)).size, out: E.filter((e) => e.dir !== 'in' && e.type !== 'calendar').length, replies: E.filter((e) => e.dir === 'in').length, meetings: E.filter((e) => e.type === 'calendar').length, byCh: Object.fromEntries(Object.entries(CH).map(([t, l]) => [l, E.filter((e) => e.type === t && (t === 'calendar' || e.dir !== 'in')).length])) });
-  const K = kpi(inP), P = kpi(inPrev); const countries = new Map(); inP.forEach((e) => { const iso = (mine.get(e.record_id) || {}).iso; if (iso) countries.set(iso, (countries.get(iso) || new Set()).add(e.record_id)); });
-  // per period bucket (days for a week, weeks for a month)
-  const buckets = []; if (len <= 8 * 864e5) { for (let t = a; t < b && t < Date.now() + 864e5; t += 864e5) buckets.push([t, t + 864e5, new Date(t).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })]); } else { for (let t = a; t < b && t < Date.now() + 864e5; t += 7 * 864e5) buckets.push([t, Math.min(b, t + 7 * 864e5), `w/c ${new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`]); }
-  const series = buckets.map(([s0, e0, l]) => ({ l, n: inP.filter((e) => { const x = +new Date(e.time); return x >= s0 && x < e0 && e.dir !== 'in'; }).length, r: inP.filter((e) => { const x = +new Date(e.time); return x >= s0 && x < e0 && e.dir === 'in'; }).length }));
-  // pipeline today
-  const FUN = [[2, 'Contacted'], [3, 'Replied / engaged'], [4, 'Interested / meeting'], [5, 'Negotiating / contract'], [6, 'Partner / ordering']]; const funnel = FUN.map(([s0, l]) => ({ l, n: [...mine.values()].filter((r) => stg(r) === s0).length }));
-  // companies: everything with activity in the period, and every company at interested or beyond
-  const last = (id) => { const xs = ev.filter((e) => e.record_id === id && +new Date(e.time) <= Date.now()).sort((x, y) => String(y.time).localeCompare(String(x.time))); return xs[0] || null; };
-  const gm = googleMeetings(); const nextMeet = (id) => gm.filter((m) => m.company_id === id && +new Date(m.start) >= Date.now()).sort((x, y) => String(x.start).localeCompare(String(y.start)))[0] || ev.filter((e) => e.record_id === id && e.type === 'calendar' && +new Date(e.time) >= Date.now()).map((e) => ({ start: e.time }))[0] || null;
-  const ids = new Set([...inP.map((e) => e.record_id), ...[...mine.values()].filter((r) => stg(r) >= 4 && stg(r) < 6).map((r) => r.id)]);
-  const rows = [...ids].map((id) => { const r = mine.get(id) || {}; const E = inP.filter((e) => e.record_id === id); const L = last(id); const nm = nextMeet(id);
-    return { id, company: r.company || C.companyById(id)?.company || 'Company', iso: r.iso, city: String(r.city || '').split(',')[0], status: stName(r), stage: stg(r), touches: E.filter((e) => e.dir !== 'in').length, replies: E.filter((e) => e.dir === 'in').length, chans: [...new Set(E.map((e) => CH[e.type]))], last: L || (r.last_interaction ? { time: r.last_interaction, type: '', dir: '' } : null), next: r.next_step || '', due: r.next_followup || '', meet: nm, dates: E.map((e) => ({ t: e.time, type: e.type, dir: e.dir })).sort((x, y) => String(x.t).localeCompare(String(y.t))), preview: L && L.preview ? String(L.preview).slice(0, 160) : '' }; })
-    .sort((x, y) => y.stage - x.stage || String(x.status).localeCompare(String(y.status)) || y.replies - x.replies || y.touches - x.touches || String((y.last || {}).time || '').localeCompare(String((x.last || {}).time || '')));
-  const CAT = { next: 'NEXT', dunitech: 'Ortho', motion: 'Motion' }[brand]; const dl = C.rowsOf('deals').filter((d) => d.category === CAT || String(d.company_ids).split('|').some((x) => mine.has(x)));
-  const won = (d) => /won|closed won|order|signed/i.test(d.stage || ''), lost = (d) => /lost/i.test(d.stage || ''); const open = dl.filter((d) => !won(d) && !lost(d));
-  const inPer = (d) => d.close_date && +new Date(`${d.close_date}T12:00:00`) >= a && +new Date(`${d.close_date}T12:00:00`) < b;
-  const deals = { open, won: dl.filter(won), wonP: dl.filter((d) => won(d) && inPer(d)), pipe: d3.sum(open, (d) => d.amount || 0), weighted: d3.sum(open, (d) => (d.amount || 0) * (d.probability || 0)), wonSum: d3.sum(dl.filter(won), (d) => d.amount || 0), wonPSum: d3.sum(dl.filter((d) => won(d) && inPer(d)), (d) => d.amount || 0), name: (d) => String(d.company_ids).split('|').map((x) => (mine.get(x) || C.companyById(x) || {}).company).filter(Boolean)[0] || '' };
-  return { brand, kind, a, b, K, P, countries, series, funnel, rows, deals };
-}
-function rptHTML(D, by) {
-  const C = __cm; const f = (t, o = { day: 'numeric', month: 'short', year: 'numeric' }) => new Date(t).toLocaleDateString('en-GB', o); const brandName = RPT_BRAND[D.brand];
-  const dl = (n, p) => (n > p ? `<span class="up">▲ ${n - p}</span>` : n < p ? `<span class="dn">▼ ${p - n}</span>` : '<span class="eq">same</span>');
-  const tile = (n, l, p) => `<div class="tile"><b>${n}</b><span>${l}</span><em>${dl(n, p)} vs previous ${D.kind === 'Monthly' || D.kind === 'This month' ? 'month' : 'week'}</em></div>`;
-  const bars = (items, color) => { const mx = Math.max(1, ...items.map((x) => x.n)); return `<div class="bars">${items.map((x) => `<div class="br"><span class="bl">${esc(x.l)}</span><span class="bt"><i style="width:${(x.n / mx) * 100}%;background:${color}"></i></span><b>${x.n}</b></div>`).join('')}</div>`; };
-  const cols = (S) => { const mx = Math.max(1, ...S.map((x) => x.n + x.r)); const W = Math.max(320, S.length * 64); return `<svg viewBox="0 0 ${W} 170" class="cols">${S.map((x, i) => { const w = 34, x0 = i * (W / S.length) + (W / S.length - w) / 2, h1 = (x.n / mx) * 120, h2 = (x.r / mx) * 120; return `<rect x="${x0}" y="${140 - h1 - h2}" width="${w}" height="${h1}" rx="4" fill="#2f6fed"/><rect x="${x0}" y="${140 - h2}" width="${w}" height="${h2}" rx="4" fill="#22a06b"/><text x="${x0 + w / 2}" y="${134 - h1 - h2}" text-anchor="middle" class="v">${x.n + x.r || ''}</text><text x="${x0 + w / 2}" y="160" text-anchor="middle" class="l">${esc(x.l)}</text>`; }).join('')}</svg><div class="leg"><i style="background:#2f6fed"></i> our outreach <i style="background:#22a06b"></i> replies from companies</div>`; };
-  const ctry = [...D.countries.entries()].map(([iso, set]) => ({ l: `${C.flag(iso)} ${(C.countryOfIso(iso) || {}).country || iso}`, n: set.size })).sort((x, y) => y.n - x.n).slice(0, 10);
-  const tierOf = (r) => (r.stage >= 5 ? 'deal' : r.stage === 4 ? 'top' : r.stage === 3 ? 'active' : 'out'); const TT = { deal: ['🤝 Contracts & orders', 'Negotiating terms, signing a contract, or already ordering.'], top: ['⭐ Top tier — interested & meetings', 'Companies closest to a partnership.'], active: ['💬 Active conversations', 'Companies that replied and are being followed up.'], out: ['📣 Outreach', 'Companies contacted in this period, waiting for a first reply.'] };
-  const ch = (c) => ({ Calls: '☎', WhatsApp: '💬', Emails: '✉', Meetings: '📅' })[c] || '•'; const ic = { call: '☎', chat: '💬', email: '✉', calendar: '📅' };
-  const AI = rptAI(); const row = (r, i) => `<tr><td class="rk">${i + 1}</td><td><b>${esc(r.company)}</b><div class="sm">${C.flag(r.iso) || ''} ${esc((C.countryOfIso(r.iso) || {}).country || '')}${r.city ? ` · ${esc(r.city)}` : ''}</div>${AI[r.id] ? `<div class="ai">${esc(AI[r.id].t)}</div>` : ''}</td><td><span class="st s${r.stage}">${esc(r.status || '—')}</span></td><td>${r.last ? `${f(r.last.time, { day: 'numeric', month: 'short', ...(Date.now() - new Date(r.last.time) > 300 * 864e5 ? { year: 'numeric' } : {}) })}<div class="sm">${r.last.type ? `${ic[r.last.type] || ''} ${r.last.dir === 'in' ? 'they wrote' : 'we contacted'}` : 'last activity'}</div>` : '—'}</td><td class="tl">${r.dates.slice(-8).map((d) => `<span class="dot ${d.dir === 'in' ? 'in' : ''}" title="${esc(f(d.t))}">${ic[d.type] || '•'}<i>${f(d.t, { day: 'numeric', month: 'numeric' })}</i></span>`).join('') || '<span class="sm">—</span>'}</td><td>${r.meet ? `📅 ${f(r.meet.start, { weekday: 'short', day: 'numeric', month: 'short' })}` : ''}${r.next ? `<div class="sm">${esc(r.next).slice(0, 120)}</div>` : ''}${r.due ? `<div class="sm">follow-up ${f(r.due, { day: 'numeric', month: 'short' })}</div>` : ''}</td></tr>`;
-  const table = (list) => `<table class="ct"><thead><tr><th></th><th>Company</th><th>Status</th><th>Last contact</th><th>Contacts this period</th><th>Next step</th></tr></thead><tbody>${list.map(row).join('')}</tbody></table>`;
-  const tiers = ['deal', 'top', 'active', 'out'].map((t) => { const L = D.rows.filter((r) => tierOf(r) === t); return L.length ? `<h2>${TT[t][0]} <span class="n">${L.length}</span></h2><p class="sub">${TT[t][1]}</p>${table(L.slice(0, t === 'out' ? 40 : 60))}${L.length > 60 ? `<p class="sub">+ ${L.length - 60} more</p>` : ''}` : ''; }).join('');
-  const highlights = D.rows.filter((r) => r.replies || r.meet || (r.stage >= 4 && r.touches)).slice(0, 6).map((r) => `<li><b>${esc(r.company)}</b> (${esc((C.countryOfIso(r.iso) || {}).country || '')}) — ${esc(r.status || 'in contact')}${r.meet ? `, meeting ${f(r.meet.start, { day: 'numeric', month: 'short' })}` : ''}${r.replies ? `, ${r.replies} repl${r.replies === 1 ? 'y' : 'ies'} this period` : ''}${AI[r.id] ? ` — ${esc(AI[r.id].t)}` : r.preview ? `: “${esc(r.preview).slice(0, 110)}”` : ''}</li>`).join('');
-  return `<div class="rpt"><style>
-.rpt{font-family:Inter,Segoe UI,Helvetica,Arial,sans-serif;color:#1d2433;background:#fff;padding:28px 34px;max-width:1040px;margin:0 auto;line-height:1.4}
-.rpt h1{font-size:26px;margin:0}.rpt h2{font-size:18px;margin:26px 0 4px;border-bottom:2px solid #eef1f6;padding-bottom:6px}.rpt h2 .n{font-size:13px;background:#eef1f6;border-radius:999px;padding:2px 9px;margin-left:6px;color:#4a5568}
-.rpt .hd{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;border-bottom:3px solid #2f6fed;padding-bottom:12px}.rpt .hd .p{color:#4a5568;font-size:13px;text-align:right}.rpt .k{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#2f6fed;font-weight:700}
-.rpt .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:18px 0}.rpt .tile{border:1px solid #e3e8f0;border-radius:12px;padding:12px 14px;display:grid;gap:2px}.rpt .tile b{font-size:30px;line-height:1}.rpt .tile span{font-size:13px;color:#4a5568}.rpt .tile em{font-style:normal;font-size:11px;color:#718096}
-.rpt .up{color:#16794c;font-weight:600}.rpt .dn{color:#c53030;font-weight:600}.rpt .eq{color:#718096}
-.rpt .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px}.rpt .box{border:1px solid #e3e8f0;border-radius:12px;padding:12px 14px}.rpt .box h3{margin:0 0 8px;font-size:14px}
-.rpt .bars{display:grid;gap:6px}.rpt .br{display:grid;grid-template-columns:150px 1fr 36px;gap:8px;align-items:center;font-size:13px}.rpt .bt{height:12px;background:#eef1f6;border-radius:6px;overflow:hidden}.rpt .bt i{display:block;height:100%;border-radius:6px}.rpt .br b{text-align:right}
-.rpt .cols{width:100%;height:auto}.rpt .cols .v{font-size:11px;fill:#1d2433;font-weight:600}.rpt .cols .l{font-size:10px;fill:#4a5568}.rpt .leg{font-size:11px;color:#4a5568}.rpt .leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:middle}
-.rpt ul{margin:6px 0 0 18px;padding:0}.rpt li{margin:4px 0;font-size:13.5px}.rpt .sub{color:#718096;font-size:12.5px;margin:2px 0 8px}
-.rpt table.ct{width:100%;border-collapse:collapse;font-size:12.5px}.rpt .ct th{text-align:left;background:#f6f8fb;color:#4a5568;font-weight:600;padding:7px 8px;border-bottom:1px solid #e3e8f0}.rpt .ct td{padding:7px 8px;border-bottom:1px solid #eef1f6;vertical-align:top}.rpt .ct .rk{color:#a0aec0;width:22px}.rpt .sm{font-size:11.5px;color:#718096}
-.rpt .st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11.5px;background:#eef1f6;white-space:nowrap}.rpt .st.s4,.rpt .st.s5{background:#fff3d6;color:#8a5a00}.rpt .st.s3{background:#e2f0ff;color:#1a4fa0}.rpt .st.s6{background:#dcf5e8;color:#16794c}
-.rpt .tl{white-space:nowrap}.rpt .dot{display:inline-grid;justify-items:center;margin-right:6px;font-size:13px}.rpt .dot i{font-style:normal;font-size:9.5px;color:#718096}.rpt .dot.in{color:#16794c}
-.rpt .ai{font-size:12px;color:#2d3748;background:#f5f8ff;border-left:3px solid #2f6fed;padding:4px 8px;margin-top:5px;border-radius:0 6px 6px 0;max-width:520px}
-.rpt .ft{margin-top:26px;font-size:11px;color:#a0aec0;border-top:1px solid #eef1f6;padding-top:10px}
-@media print{.rpt{padding:0}.rpt h2{break-after:avoid}.rpt tr{break-inside:avoid}} @media (max-width:700px){.rpt{padding:16px}.rpt .tiles{grid-template-columns:repeat(2,1fr)}.rpt .grid2{grid-template-columns:1fr}.rpt .br{grid-template-columns:110px 1fr 30px}}
-</style>
-<div class="hd"><div><div class="k">${esc(D.kind)} activity report</div><h1>${esc(brandName)}</h1><div style="color:#4a5568;margin-top:4px">${f(D.a)} – ${f(Math.min(D.b, Date.now()) - 1)}</div></div><div class="p">Prepared by<br><b>${esc(by)}</b><br>${f(Date.now())}</div></div>
-<div class="tiles">${tile(D.K.cos, 'companies contacted', D.P.cos)}${tile(D.K.out, 'calls, WhatsApps &amp; emails sent', D.P.out)}${tile(D.K.replies, 'replies from companies', D.P.replies)}${tile(D.K.meetings, 'meetings', D.P.meetings)}</div>
-${highlights ? `<h2>Highlights</h2><ul>${highlights}</ul>` : ''}
-<div class="grid2" style="margin-top:18px"><div class="box"><h3>Activity over the ${D.kind === 'Monthly' || D.kind === 'This month' ? 'month' : 'week'}</h3>${cols(D.series)}</div><div class="box"><h3>By channel</h3>${bars(Object.entries(D.K.byCh).map(([l, n]) => ({ l: `${ch(l)} ${l}`, n })), '#2f6fed')}<h3 style="margin-top:14px">Pipeline today</h3>${bars(D.funnel, '#f2a33a')}</div></div>
-${ctry.length ? `<div class="box" style="margin-top:18px"><h3>Countries worked this period (companies)</h3>${bars(ctry, '#22a06b')}</div>` : ''}
-${(() => { const X = D.deals; if (!X || (!X.open.length && !X.won.length)) return ''; const m = (v) => `$${Math.round(v || 0).toLocaleString('en')}`; const dt = (list, done) => `<table class="ct"><thead><tr><th>Deal</th><th>Company</th><th>Stage</th><th style="text-align:right">Value</th><th>${done ? 'Closed' : 'Probability · expected'}</th></tr></thead><tbody>${list.map((d) => `<tr><td><b>${esc(d.name)}</b>${d.next_steps && !done ? `<div class="sm">${esc(d.next_steps).slice(0, 120)}</div>` : ''}</td><td>${esc(X.name(d))}</td><td><span class="st ${done ? 's6' : 's5'}">${esc(d.stage || '—')}</span></td><td style="text-align:right"><b>${d.amount ? m(d.amount) : '—'}</b></td><td>${done ? (d.close_date ? f(d.close_date, { day: 'numeric', month: 'short', year: 'numeric' }) : '') : `${d.probability ? `${Math.round(d.probability * 100)}%` : '—'}${d.close_date ? ` · ${f(d.close_date, { month: 'short', year: 'numeric' })}` : ''}`}</td></tr>`).join('')}</tbody></table>`;
-  return `<h2>💼 Deals <span class="n">${X.open.length + X.won.length}</span></h2><div class="tiles"><div class="tile"><b>${m(X.pipe)}</b><span>open pipeline (${X.open.length} deal${X.open.length === 1 ? '' : 's'})</span><em>weighted ${m(X.weighted)}</em></div><div class="tile"><b>${m(X.wonPSum)}</b><span>won this ${D.kind === 'Monthly' || D.kind === 'This month' ? 'month' : 'week'}</span><em>${X.wonP.length} deal${X.wonP.length === 1 ? '' : 's'}</em></div><div class="tile"><b>${m(X.wonSum)}</b><span>won in total</span><em>${X.won.length} deal${X.won.length === 1 ? '' : 's'}</em></div><div class="tile"><b>${X.open.filter((d) => /contract|sign|negot/i.test(d.stage || '')).length}</b><span>at contract / negotiation</span><em>of ${X.open.length} open</em></div></div>${X.open.length ? `<h3 style="margin:10px 0 6px;font-size:14px">In the pipeline</h3>${dt(X.open.slice().sort((p, q) => (q.amount || 0) * (q.probability || 0) - (p.amount || 0) * (p.probability || 0)), !1)}` : ''}${X.won.length ? `<h3 style="margin:14px 0 6px;font-size:14px">Won</h3>${dt(X.won.slice().sort((p, q) => String(q.close_date || '').localeCompare(String(p.close_date || ''))), !0)}` : ''}`; })()}
-${tiers || '<p class="sub">No activity recorded in this period.</p>'}
-<div class="ft">Activity from the CRM timeline (calls, WhatsApp, emails and meetings) for ${esc(brandName)} target companies. ▲▼ compare with the previous ${D.kind === 'Monthly' || D.kind === 'This month' ? 'month' : 'week'}. Prepared with Medint.</div></div>`;
-}
-function rptText(D) { const f = (t) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }); const L = [`${RPT_BRAND[D.brand]} — ${D.kind.toLowerCase()} activity report (${f(D.a)} – ${f(Math.min(D.b, Date.now()) - 1)})`, '', `• ${D.K.cos} companies contacted · ${D.K.out} calls, WhatsApps and emails · ${D.K.replies} replies · ${D.K.meetings} meetings`, `• Pipeline: ${D.funnel.map((x) => `${x.l} ${x.n}`).join(' · ')}`, ...(D.deals && (D.deals.open.length || D.deals.won.length) ? [`• Deals: $${Math.round(D.deals.pipe).toLocaleString('en')} in the pipeline (${D.deals.open.length}) · $${Math.round(D.deals.wonSum).toLocaleString('en')} won`] : []), '', 'Top companies:'];
-  const AI = rptAI(); D.rows.filter((r) => r.stage >= 4).slice(0, 10).forEach((r) => L.push(`• ${r.company} (${(__cm.countryOfIso(r.iso) || {}).country || r.iso}) — ${r.status}${r.last ? `, last contact ${f(r.last.time)}` : ''}${AI[r.id] ? ` — ${AI[r.id].t}` : r.next ? ` — next: ${r.next}` : ''}`)); L.push('', 'Full report attached.'); return L.join('\n'); }
-function openClientReport(anchor) { const C = __cm; const el = C.el;
-  C.openSheet(anchor, '📤 Client report', (body) => {
-    const bar = el('div', 'cm-cgfl'); const sel = (opts, v, on) => { const x = el('select', 'cm-phtpl'); opts.forEach(([a, l]) => x.append(new Option(l, a))); x.value = v; x.addEventListener('change', () => { on(x.value); C.sheetDraw(); }); return x; };
-    bar.append(sel(Object.entries(RPT_BRAND), rptS.brand, (v) => { rptS.brand = v; }), sel([['lastweek', 'Last week (weekly report)'], ['thisweek', 'This week so far'], ['lastmonth', 'Last month (monthly report)'], ['thismonth', 'This month so far']], rptS.period, (v) => { rptS.period = v; }));
-    const by = el('input', 'cm-asearch'); by.value = rptS.by; by.placeholder = 'Prepared by'; by.style.maxWidth = '18rem'; by.addEventListener('change', () => { rptS.by = by.value; C.sheetDraw(); }); bar.append(by); body.append(bar);
-    dash.data('deals'); const D = rptData(rptS.brand, rptS.period); if (!D) { body.append(el('div', 'hint', 'Loading the activity history…')); dash.data('contact_history'); dash.data('pipeline_stages'); setTimeout(() => { const t = (document.getElementById('cm-sheet-title') || {}).textContent || ''; if (/^📤/.test(t)) C.sheetDraw && C.sheetDraw(); }, 1500); return; }
-    const html = rptHTML(D, rptS.by); const file = `${RPT_BRAND[D.brand].replace(/\W+/g, '-')}-${D.kind.replace(/\W+/g, '-')}-report-${new Date(D.a).toISOString().slice(0, 10)}`;
-    const full = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(RPT_BRAND[D.brand])} — ${esc(D.kind)} report</title></head><body style="margin:0;background:#f3f5f9">${html}</body></html>`;
-    const acts = el('div', 'cm-chips');
-    const dlb = el('button', 'cm-btn', '⬇ Download report'); dlb.type = 'button'; dlb.title = 'One HTML file — open it and use Print → Save as PDF, or attach it to an email'; dlb.addEventListener('click', () => { const u = URL.createObjectURL(new Blob([full], { type: 'text/html' })); const x = el('a'); x.href = u; x.download = `${file}.html`; document.body.append(x); x.click(); x.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000); miLog({ action: 'Other', outcome: `client report: ${D.brand} ${D.kind}` }); });
-    const pr = el('button', 'cm-btn ghost', '🖨 Print / PDF'); pr.type = 'button'; pr.addEventListener('click', () => { const w = window.open('', '_blank'); if (!w) { dlb.click(); C.say('Pop-up blocked — downloaded the report instead; open it and print.'); return; } w.document.write(full); w.document.close(); setTimeout(() => w.print(), 600); });
-    const csv = el('button', 'cm-btn ghost', '⬇ Excel (CSV)'); csv.type = 'button'; csv.addEventListener('click', () => { const H = ['Company', 'Country', 'City', 'Status', 'Summary', 'Last contact', 'Last channel', 'Contacts this period', 'Replies this period', 'Contact dates', 'Next meeting', 'Next step', 'Follow-up']; const q = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-      const AIx = rptAI(); const lines = D.rows.map((r) => [r.company, (C.countryOfIso(r.iso) || {}).country || r.iso, r.city, r.status, (AIx[r.id] || {}).t || '', r.last ? new Date(r.last.time).toISOString().slice(0, 10) : '', r.last ? r.last.type : '', r.touches, r.replies, r.dates.map((d) => `${d.t.slice(0, 10)} ${d.type}${d.dir === 'in' ? ' (in)' : ''}`).join('; '), r.meet ? String(r.meet.start).slice(0, 10) : '', r.next, r.due].map(q).join(','));
-      const u = URL.createObjectURL(new Blob([`\ufeff${[H.join(','), ...lines].join('\n')}`], { type: 'text/csv' })); const x = el('a'); x.href = u; x.download = `${file}.csv`; document.body.append(x); x.click(); x.remove(); });
-    const em = el('a', 'cm-btn ghost', '✉ Email summary'); em.target = '_blank'; em.rel = 'noopener noreferrer'; em.href = `https://mail.google.com/mail/?view=cm&fs=1&su=${encodeURIComponent(`${RPT_BRAND[D.brand]} — ${D.kind} activity report`)}&body=${encodeURIComponent(rptText(D))}`; em.title = 'Opens a Gmail draft with the short summary — attach the downloaded report';
-    const aiB = el('button', 'cm-btn ghost', rptS.busy ? 'Writing summaries…' : '✨ Add AI summaries'); aiB.type = 'button'; aiB.disabled = rptS.busy; aiB.title = 'Reads each important company’s recent emails, calls, WhatsApps, meetings and notes in NetHunt and writes a 1–2 sentence status line for the report'; aiB.addEventListener('click', () => rptMakeAI(D));
-    acts.append(aiB, dlb, pr, csv, em); if (rptS.prog) acts.append(el('span', 'cm-prog', rptS.prog)); body.append(acts, el('div', 'mut', 'Preview — this is exactly what the client gets. It shows the work and the companies, not who in the team did it.'));
-    const pv = el('div', 'cm-rptpv'); pv.innerHTML = html; body.append(pv);
-  }, { wide: !0, center: !0 }); }
-
 // ===================== people order for outreach: decision makers → people we talk to / referred → most relevant =====================
 let talkMemo = { src: null, emails: new Set(), phones: new Set() };
 function talkedTo() { const ch = dash.data('contact_history'); if ('ok' !== ch.status) return talkMemo; if (talkMemo.src !== ch.data) { const em = new Set(), ph = new Set(); ch.data.forEach((e) => { if (e.by_email) em.add(String(e.by_email).toLowerCase()); if (e.chat_number) ph.add(String(e.chat_number).replace(/\D/g, '').slice(-9)); }); talkMemo = { src: ch.data, emails: em, phones: ph }; } return talkMemo; }
-function personGroup(p) { const C = __cm; if (C.cmRank(p.title) <= 1) return 0; const T = talkedTo(); const ems = String(p.email || p.emails || '').toLowerCase().split(/, | \| |\n/).filter(Boolean); const phs = C.splitBar(p.phone || p.phones || '').map((x) => String(x).replace(/\D/g, '').slice(-9)).filter((x) => x.length >= 7);
+function personGroup(p) { const C = __cm; const chatty = (chatS.get(dash.params().cid) || {}).rows; const hasChat = !!(chatty && chatty.some((r) => r.rid === p.id)); if (C.cmRank(p.title) <= 1) return 0; if (hasChat) return 1; const T = talkedTo(); const ems = String(p.email || p.emails || '').toLowerCase().split(/, | \| |\n/).filter(Boolean); const phs = C.splitBar(p.phone || p.phones || '').map((x) => String(x).replace(/\D/g, '').slice(-9)).filter((x) => x.length >= 7);
   const recent = p.last_interaction && Date.now() - new Date(p.last_interaction) < 365 * 864e5; if (recent || ems.some((e) => T.emails.has(e)) || phs.some((x) => T.phones.has(x)) || /refer|recommend|introduc/i.test(`${p.contact_type || ''} ${p.source || ''} ${p.notes || ''}`)) return 1; return 2; }
-function personSort(a, b) { const C = __cm; return personGroup(a) - personGroup(b) || C.cmRank(a.title) - C.cmRank(b.title) || String(b.last_interaction || '').localeCompare(String(a.last_interaction || '')) || C.cmReach(b) - C.cmReach(a); }
+function personSort(a, b) { const C = __cm; const ch = (p) => { const r = (chatS.get(dash.params().cid) || {}).rows; return r ? r.filter((x) => x.rid === p.id).reduce((m, x) => (x.time > m ? x.time : m), '') : ''; }; return personGroup(a) - personGroup(b) || String(ch(b)).localeCompare(String(ch(a))) || C.cmRank(a.title) - C.cmRank(b.title) || String(b.last_interaction || '').localeCompare(String(a.last_interaction || '')) || C.cmReach(b) - C.cmReach(a); }
+// ===================== a Person's countries (assignment rules + the companies they can see) =====================
+let isoMemo = { key: '', val: null };
+function allowedIsos() {
+  if (isHouse()) return null; const C = __cm; const as = dash.data('medint_assign'); const ps = dash.data('pipeline_stages'); const nm = low(me().name);
+  const key = `${nm}|${as.status}:${(as.data || []).length}|${ps.status}:${(ps.data || []).length}`; if (isoMemo.key === key) return isoMemo.val;
+  const cs = C.rowsOf('countries'); const out = new Set();
+  ('ok' === as.status ? as.data : []).filter((r) => r.active && low(r.person) === nm).forEach((r) => {
+    if (r.type === 'Country') String(r.value).split(/[,;|]+/).map((v) => v.trim()).filter(Boolean).forEach((v) => { const c = cs.find((x) => low(x.iso) === low(v) || low(x.country) === low(v)); c && out.add(c.iso); });
+    if (r.type === 'Region') cs.filter((c) => low(c.region) === low(r.value)).forEach((c) => out.add(c.iso)); });
+  if (window.cmBoot && 'ok' === ps.status) ps.data.forEach((r) => r.iso && out.add(r.iso)); // on the website a Person only receives their own companies
+  const val = out.size ? out : null; isoMemo = { key, val }; return val; // nothing known yet → don't hide anything
+}
+// ===================== shared Medint items in NetHunt (the “Medint Ignore” folder, Kind = Sequence / Registration) =====================
+const itemsS = { at: 0, busy: !1, rows: null, err: null };
+function loadItems(force) {
+  if (itemsS.busy || (!force && (itemsS.rows || itemsS.err) && Date.now() - itemsS.at < 90e3)) return itemsS.rows; itemsS.busy = !0; // a failed read waits too (no retry storm)
+  (async () => { const out = []; let cur = null; let n = 0;
+    do { const p = await __cm.nhCall('filter_records', { folderId: IGN_FOLDER, fieldKeys: 'label', filter: { Kind: { _exists: !0 } }, limit: 500, ...(cur ? { cursor: cur } : {}) });
+      (p.records || []).forEach((r) => { const f = r.fields || {}; let d = {}; try { d = JSON.parse(f.Data || '{}'); } catch { /* bad row */ } out.push({ id: r.id, kind: f.Kind, name: f.Name || '', cid: f['Company ID'] || [].concat(f.Company || [])[0] || '', by: f.By || '', d }); });
+      cur = p.nextCursor; n++; } while (cur && n < 6);
+    itemsS.rows = out; itemsS.at = Date.now(); itemsS.err = null; })().catch((e) => { itemsS.err = __cm.nhErr ? __cm.nhErr(e) : String(e); itemsS.at = Date.now(); }).finally(() => { itemsS.busy = !1; if (itemsS.err && !itemsS.rows) return; seqCheckReplies(); pqMemo.key = ''; hmKey = ''; try { const t = (document.getElementById('cm-sheet-title') || {}).textContent || ''; if (/^(🔁|🧾|⚡)/.test(t)) __cm.sheetDraw && __cm.sheetDraw(); drawHome(); } catch { /* closed */ } });
+  return itemsS.rows;
+}
+setTimeout(() => { try { loadItems(); } catch { /* not ready */ } }, 10e3); setInterval(() => { try { loadItems(!0); } catch { /* offline */ } }, 5 * 60e3);
+const items = (kind) => (loadItems() || []).filter((x) => x.kind === kind);
+async function saveItem(kind, it, d, nm) {
+  const C = __cm; const fields = { Kind: kind, Data: JSON.stringify(d), By: me().name, ...(nm ? { Name: nm.slice(0, 200) } : {}) };
+  if (d.cid) { fields.Company = [d.cid]; fields['Company ID'] = d.cid; }
+  const r = it ? await C.nhCall('update_record', { folderId: IGN_FOLDER, recordId: it.id, fieldKeys: 'label', fields }) : await C.nhCall('create_record', { folderId: IGN_FOLDER, fieldKeys: 'label', fields: { Name: nm || kind, ...fields } });
+  const row = { id: (r && r.id) || (it && it.id), kind, name: nm || (it && it.name) || kind, cid: d.cid || '', by: me().name, d };
+  itemsS.rows = [...(itemsS.rows || []).filter((x) => x.id !== row.id), row]; pqMemo.key = ''; hmKey = ''; return row;
+}
+const isoDay = (t) => new Date(t).toISOString().slice(0, 10); const addDays = (iso, n) => isoDay(new Date(`${iso}T12:00:00Z`).getTime() + n * 864e5);
+// ===================== 🔁 follow-up sequences =====================
+const SEQ_TPL = { standard: ['Standard · day 0 / 3 / 7 / 14', [[0, 'whatsapp'], [3, 'email'], [7, 'call'], [14, 'whatsapp']]], gentle: ['Gentle · day 0 / 5 / 12 / 21', [[0, 'email'], [5, 'whatsapp'], [12, 'call'], [21, 'email']]], quick: ['Quick · day 0 / 2 / 5 / 9', [[0, 'whatsapp'], [2, 'call'], [5, 'email'], [9, 'whatsapp']]] };
+const SEQ_CH = { whatsapp: ['💬', 'WhatsApp', 'WhatsApp'], email: ['✉', 'Email', 'Email'], call: ['☎', 'Call', 'Call'] };
+function seqState(s) { const d = s.d; const steps = d.steps || []; const done = d.done || []; const i = done.length; if (d.status !== 'Active' || i >= steps.length) return { i, due: null, step: null };
+  const prevDone = done[i - 1]; const planned = addDays(d.start, steps[i][0]); const gap = i ? steps[i][0] - steps[i - 1][0] : 0; const due = prevDone && addDays(prevDone, gap) > planned ? addDays(prevDone, gap) : planned; return { i, due, step: steps[i] }; }
+const seqFor = (cid) => items('Sequence').filter((s) => s.cid === cid).sort((a, b) => String(b.d.start).localeCompare(String(a.d.start)))[0] || null;
+const seqActive = (cid) => { const s = seqFor(cid); return s && s.d.status === 'Active' ? s : null; };
+function seqDraft(s, lang, first, brand, company) { const i = (s.d.done || []).length; const n = (s.d.steps || []).length; const last = i === n - 1; const ch = ((s.d.steps || [])[i] || [])[1] || 'whatsapp'; const nm = first ? ` ${first}` : '';
+  const T = {
+    en: [`Hello${nm}, I'm reaching out from ${brand}. We make orthopaedic implants and are looking for a strong distribution partner in your market. Could we have a short call this week?`, `Dear${nm},\n\nFollowing up on my message about ${brand}. I've attached our catalogue — I'd be glad to hear which product lines fit ${company}'s portfolio and to arrange a short call.\n\nKind regards`, `Call: introduce ${brand}, ask who handles new product lines, which brands they carry today, and agree a next step (catalogue, prices or a meeting).`, `Hello${nm}, one last note from ${brand}: if partnering isn't a priority right now, no problem — just let me know and I won't follow up. If it is, I'd be happy to send prices and samples.`],
+    es: [`Hola${nm}, le escribo de ${brand}. Fabricamos implantes ortopédicos y buscamos un distribuidor sólido en su mercado. ¿Podríamos tener una llamada breve esta semana?`, `Estimado/a${nm}:\n\nLe escribo como seguimiento a mi mensaje sobre ${brand}. Adjunto nuestro catálogo; me encantaría saber qué líneas encajan con el portafolio de ${company} y coordinar una breve llamada.\n\nSaludos cordiales`, `Llamada: presentar ${brand}, preguntar quién decide nuevas líneas, qué marcas manejan hoy y acordar un siguiente paso (catálogo, precios o reunión).`, `Hola${nm}, un último mensaje de ${brand}: si ahora no es prioridad, no hay problema — avíseme y no insistiré. Si le interesa, con gusto le envío precios y muestras.`],
+    pt: [`Olá${nm}, escrevo da ${brand}. Fabricamos implantes ortopédicos e procuramos um distribuidor forte no seu mercado. Podemos falar rapidamente esta semana?`, `Prezado(a)${nm},\n\nDando seguimento à minha mensagem sobre a ${brand}, envio o nosso catálogo. Gostaria de saber quais linhas se encaixam no portfólio da ${company} e marcar uma conversa curta.\n\nAtenciosamente`, `Ligação: apresentar a ${brand}, perguntar quem decide novas linhas, quais marcas trabalham hoje e combinar o próximo passo.`, `Olá${nm}, uma última mensagem da ${brand}: se não for prioridade agora, sem problema — é só avisar. Se for, envio preços e amostras com prazer.`],
+    fr: [`Bonjour${nm}, je vous contacte de la part de ${brand}. Nous fabriquons des implants orthopédiques et cherchons un distributeur solide sur votre marché. Pourrions-nous échanger brièvement cette semaine ?`, `Bonjour${nm},\n\nJe reviens vers vous au sujet de ${brand}. Vous trouverez notre catalogue ci-joint ; je serais ravi de savoir quelles gammes conviennent à ${company} et d'organiser un court appel.\n\nCordialement`, `Appel : présenter ${brand}, demander qui décide des nouvelles gammes, quelles marques ils distribuent et convenir d'une prochaine étape.`, `Bonjour${nm}, un dernier message de ${brand} : si ce n'est pas une priorité, aucun souci — dites-le-moi et je n'insisterai pas. Sinon, je vous envoie volontiers prix et échantillons.`],
+    tr: [`Merhaba${nm}, ${brand} adına yazıyorum. Ortopedik implant üretiyoruz ve pazarınızda güçlü bir distribütör arıyoruz. Bu hafta kısa bir görüşme yapabilir miyiz?`, `Sayın${nm},\n\n${brand} ile ilgili mesajımın devamı olarak kataloğumuzu ekte gönderiyorum. ${company} portföyüne hangi ürün gruplarının uyduğunu duymak ve kısa bir görüşme ayarlamak isterim.\n\nSaygılarımla`, `Arama: ${brand}'ı tanıt, yeni ürün gruplarına kimin karar verdiğini ve bugün hangi markaları taşıdıklarını sor, bir sonraki adımı kararlaştır.`, `Merhaba${nm}, ${brand}'tan son bir not: şu an öncelik değilse sorun değil — haber verin, tekrar yazmayayım. İlgilenirseniz fiyat ve numune göndermekten memnuniyet duyarım.`],
+    it: [`Buongiorno${nm}, la contatto da parte di ${brand}. Produciamo impianti ortopedici e cerchiamo un distributore solido nel suo mercato. Possiamo fare una breve chiamata questa settimana?`, `Gentile${nm},\n\nfaccio seguito al mio messaggio su ${brand} e le allego il nostro catalogo. Sarei felice di sapere quali linee si adattano al portafoglio di ${company} e di fissare una breve chiamata.\n\nCordiali saluti`, `Chiamata: presentare ${brand}, chiedere chi decide le nuove linee, quali marchi trattano oggi e concordare il prossimo passo.`, `Buongiorno${nm}, un ultimo messaggio da ${brand}: se ora non è una priorità, nessun problema — me lo dica e non insisterò. Altrimenti le invio volentieri prezzi e campioni.`],
+  };
+  const L = T[lang] || T.en; const k = last && n > 1 ? 3 : ch === 'call' ? 2 : ch === 'email' && i > 0 ? 1 : i === 0 ? 0 : ch === 'email' ? 1 : 0; return L[k];
+}
+async function seqTouched(cid, action) { // a call / WhatsApp / email on a company with a due step → that step is done
+  const s = seqActive(cid); if (!s) return; const st = seqState(s); if (!st.step) return; const want = { whatsapp: 'WhatsApp', email: 'Email', call: 'Call' }[st.step[1]];
+  if (action !== want && !(st.step[1] === 'call' && action === 'WhatsApp')) return; if (st.due > addDays(isoDay(Date.now()), 1)) return;
+  const done = [...(s.d.done || []), isoDay(Date.now())]; const d = { ...s.d, done, status: done.length >= (s.d.steps || []).length ? 'Done' : 'Active' };
+  try { await saveItem('Sequence', s, d); __cm.say(d.status === 'Done' ? '🔁 Sequence finished — all steps done' : `🔁 Step ${done.length} of ${d.steps.length} done · next: ${SEQ_CH[d.steps[done.length][1]][1]} on ${new Date(`${seqState({ d }).due}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`); } catch { /* retried next time */ }
+}
+let seqChecked = 0;
+function seqCheckReplies() { // they wrote back → the sequence stops by itself
+  if (Date.now() - seqChecked < 60e3) return; const ch = dash.data('contact_history'); if ('ok' !== ch.status) return; seqChecked = Date.now();
+  items('Sequence').filter((s) => s.d.status === 'Active').forEach((s) => { const from = s.d.startAt || Date.parse(`${s.d.start}T00:00:00`); const hit = ch.data.find((e) => e.record_id === s.cid && e.dir === 'in' && +new Date(e.time) > from); /* a message after the sequence began */ if (hit) saveItem('Sequence', s, { ...s.d, status: 'Replied', replied: String(hit.time).slice(0, 10) }).then(() => __cm.say(`🔁 ${s.d.company || 'A company'} replied — its sequence stopped`)).catch(() => {}); });
+}
+function seqDue() { const today = isoDay(Date.now()); return items('Sequence').filter((s) => s.d.status === 'Active').map((s) => ({ s, st: seqState(s) })).filter((x) => x.st.due && x.st.due <= today); }
+function seqBadge(cid) { const s = seqFor(cid); if (!s) return null; const st = seqState(s); const el = __cm.el; const n = (s.d.steps || []).length;
+  const b = el('button', `cm-chip cm-seqchip ${s.d.status === 'Active' ? (st.due && st.due <= isoDay(Date.now()) ? 'due' : 'on') : 'off'}`, s.d.status === 'Active' ? `🔁 Step ${st.i + 1}/${n} · ${SEQ_CH[st.step[1]][0]} ${st.due <= isoDay(Date.now()) ? 'due now' : new Date(`${st.due}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : `🔁 ${s.d.status}`); b.type = 'button'; b.addEventListener('click', (e) => openSequence(e.currentTarget, cid)); return b; }
+function openSequence(anchor, cid, name0) {
+  const C = __cm; const el = C.el; const p = C.rowsOf('pipeline_stages').find((x) => x.id === cid) || C.companyById(cid) || {}; const name = name0 || p.company || 'Company';
+  C.openSheet(anchor, `🔁 Follow-up sequence · ${name}`, (body) => {
+    const s = seqFor(cid);
+    if (s && s.d.status === 'Active') { const st = seqState(s); const steps = s.d.steps || [];
+      body.append(el('p', 'mut', `Started ${new Date(`${s.d.start}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })} by ${s.by || s.d.owner || '—'} · ${s.d.contact ? `to ${s.d.contact} · ` : ''}${(s.d.lang || 'en').toUpperCase()} · stops by itself when they reply`));
+      const ol = el('ol', 'cm-seqsteps'); steps.forEach(([day, ch], k) => { const li = el('li', k < (s.d.done || []).length ? 'done' : k === st.i ? 'cur' : ''); const when = k < (s.d.done || []).length ? `✓ ${new Date(`${s.d.done[k]}T12:00:00`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}` : k === st.i ? `due ${new Date(`${st.due}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}` : `day ${day}`; li.append(el('b', null, `${SEQ_CH[ch][0]} ${SEQ_CH[ch][1]}${k === steps.length - 1 ? ' · last try' : ''}`), el('span', 'mut', when)); ol.append(li); }); body.append(ol);
+      const draft = el('textarea', 'cm-phdraft'); draft.value = seqDraft(s, s.d.lang, String(s.d.contact || '').split(' ')[0], C.OURS[s.d.brand] ? C.OURS[s.d.brand].label : 'Next Shoulder', name); draft.rows = 6; body.append(el('div', 'k', `Draft for step ${st.i + 1}`), draft);
+      const row = el('div', 'cm-chips'); const go = el('button', 'cm-btn', '⚡ Do it in Power hour'); go.type = 'button'; go.addEventListener('click', () => { C.closeSheet(); openPowerHour(document.querySelector('.cm-phtop'), cid); });
+      const dn = el('button', 'cm-btn ghost', '✓ Mark this step done'); dn.type = 'button'; dn.addEventListener('click', async () => { const done = [...(s.d.done || []), isoDay(Date.now())]; await saveItem('Sequence', s, { ...s.d, done, status: done.length >= steps.length ? 'Done' : 'Active' }); C.sheetDraw(); });
+      const stp = el('button', 'cm-btn ghost', '⏹ Stop'); stp.type = 'button'; stp.addEventListener('click', async () => { await saveItem('Sequence', s, { ...s.d, status: 'Stopped', stopped: isoDay(Date.now()) }); C.sheetDraw(); });
+      const cp = el('button', 'cm-btn ghost', '⧉ Copy draft'); cp.type = 'button'; cp.addEventListener('click', async () => { try { await navigator.clipboard.writeText(draft.value); cp.textContent = '✓ Copied'; } catch { /* not allowed */ } });
+      row.append(go, dn, cp, stp); body.append(row); return; }
+    if (s) body.append(el('div', 'hint', `Last sequence: ${s.d.status}${s.d.replied ? ` (they replied ${s.d.replied})` : ''}. Start a new one below.`));
+    body.append(el('p', 'mut', 'Medint schedules each step, shows it in Power hour on the day (with a draft in their language), marks it done when you call, WhatsApp or email them, and stops by itself when they reply.'));
+    const f = { tpl: 'standard', lang: (C.langsFor ? C.langsFor(p.iso) : [])[0] || ({ ES: 'es', MX: 'es', CO: 'es', PE: 'es', EC: 'es', CL: 'es', AR: 'es', GT: 'es', PA: 'es', BO: 'es', PY: 'es', UY: 'es', VE: 'es', CR: 'es', DO: 'es', HN: 'es', SV: 'es', NI: 'es', BR: 'pt', PT: 'pt', AO: 'pt', MZ: 'pt', FR: 'fr', MA: 'fr', DZ: 'fr', TN: 'fr', SN: 'fr', CI: 'fr', CM: 'fr', TR: 'tr', IT: 'it' }[p.iso] || 'en'), start: isoDay(Date.now()), contact: '' };
+    const sel = (opts, v, on) => { const x = el('select', 'cm-phtpl'); opts.forEach(([a, l]) => x.append(new Option(l, a))); x.value = v; x.addEventListener('change', () => on(x.value)); return x; };
+    const ppl = dash.params().cid === cid ? C.rowsOf('company_contacts').slice().sort(personSort) : [];
+    const g = el('div', 'cm-regform');
+    g.append(el('label', null, 'Steps'), sel(Object.entries(SEQ_TPL).map(([k, [l]]) => [k, l]), f.tpl, (v) => { f.tpl = v; }), el('label', null, 'Language'), sel([['en', 'English'], ['es', 'Español'], ['pt', 'Português'], ['fr', 'Français'], ['tr', 'Türkçe'], ['it', 'Italiano']], f.lang, (v) => { f.lang = v; }));
+    if (ppl.length) { f.contact = ppl[0].name; g.append(el('label', null, 'To'), sel(ppl.map((x) => [x.name, `${x.name}${x.title ? ` · ${x.title}` : ''}`]), f.contact, (v) => { f.contact = v; })); }
+    const sd = el('input'); sd.type = 'date'; sd.value = f.start; sd.addEventListener('change', () => { f.start = sd.value || f.start; }); g.append(el('label', null, 'Start'), sd); body.append(g);
+    const b = el('button', 'cm-btn', '🔁 Start sequence'); b.type = 'button'; b.addEventListener('click', async () => { b.disabled = !0; try { const k = C.oursKey(); const brand = C.OURS[k] && !C.OURS[k].all ? k : 'next'; await saveItem('Sequence', null, { cid, company: name, iso: p.iso, brand, lang: f.lang, contact: f.contact, owner: me().name, start: f.start, startAt: f.start === isoDay(Date.now()) ? Date.now() : Date.parse(`${f.start}T00:00:00`), steps: SEQ_TPL[f.tpl][1], done: [], status: 'Active' }, `Sequence · ${name}`); miLog({ action: 'Other', company_id: cid, outcome: `sequence started: ${f.tpl}` }); C.sheetDraw(); } catch (e) { b.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } }); body.append(b);
+  }, { center: !0 });
+}
+function openSequences(anchor) { const C = __cm; const el = C.el;
+  C.openSheet(anchor, '🔁 Follow-up sequences', (body) => { const all = loadItems(); if (!all) { body.append(el('div', 'hint', itemsS.err ? `Couldn’t read them: ${itemsS.err}` : 'Loading…')); return; }
+    const S = items('Sequence').map((s) => ({ s, st: seqState(s) })); const today = isoDay(Date.now());
+    const grp = [['⏰ Due today or overdue', S.filter((x) => x.s.d.status === 'Active' && x.st.due && x.st.due <= today)], ['▶ Active, coming up', S.filter((x) => x.s.d.status === 'Active' && x.st.due > today).sort((a, b) => a.st.due.localeCompare(b.st.due))], ['💬 Replied — sequence stopped by itself', S.filter((x) => x.s.d.status === 'Replied')], ['✓ Finished or stopped', S.filter((x) => ['Done', 'Stopped'].includes(x.s.d.status))]];
+    if (!S.length) body.append(el('p', 'mut', 'No sequences yet. Start one from a company page (🔁 Sequence) or from Power hour.'));
+    grp.forEach(([t, L]) => { if (!L.length) return; body.append(el('div', 'cm-cgk', `${t} · ${L.length}`)); L.forEach(({ s }) => { const r = el('div', 'cm-pi cm-seqrow'); const nm = el('button', 'cm-co', `${C.flag(s.d.iso) || ''} ${s.d.company || s.name}`); nm.type = 'button'; nm.dataset.openCompany = s.cid; r.append(nm, el('span', 'mut', s.d.owner || s.by || '')); const bd = seqBadge(s.cid); bd && r.append(bd); body.append(r); }); });
+  }, { wide: !0, center: !0 }); }
+// ===================== ✎ edit a person (name, title, phones, emails, LinkedIn) =====================
+function editPerson(anchor, p, companyId) { const C = __cm; const el = C.el; const isNew = !p || !p.id; p = p || {};
+  C.openSheet(anchor, isNew ? '＋ Add a person' : `✎ ${p.name || 'Person'}`, (body) => { const g = el('div', 'cm-regform'); const v = { name: p.name || '', title: p.title || '', phones: C.splitBar(p.phone || p.phones || '').join('\n'), emails: String(p.email || p.emails || '').split(/, | \| |\n/).filter(Boolean).join('\n'), linkedin: p.linkedin || '', facebook: p.facebook || '', instagram: p.instagram || '' };
+    const inp = (k, ph, multi) => { const x = el(multi ? 'textarea' : 'input'); if (multi) x.rows = 3; x.value = v[k]; x.placeholder = ph; x.addEventListener('input', () => { v[k] = x.value; }); return x; };
+    g.append(el('label', null, 'Name'), inp('name', 'Full name'), el('label', null, 'Title'), inp('title', 'e.g. Gerente general'), el('label', null, 'Phones'), inp('phones', 'One per line — the first one is used for WhatsApp, e.g. +39 347 843 4464', !0), el('label', null, 'Emails'), inp('emails', 'One per line', !0), el('label', null, 'LinkedIn'), inp('linkedin', 'https://www.linkedin.com/in/…'), el('label', null, 'Facebook'), inp('facebook', 'https://facebook.com/…'), el('label', null, 'Instagram'), inp('instagram', '@name or link'));
+    body.append(g, el('div', 'mut', isNew ? 'Saved as a contact on this company in NetHunt — it counts in “Details you found today”.' : 'Tip: put the working WhatsApp number first. A number that isn’t on WhatsApp can stay for calls — mark it with × next to the WhatsApp icon.'));
+    const row = el('div', 'cm-chips'); const sv = el('button', 'cm-btn', isNew ? '＋ Add to NetHunt' : '💾 Save to NetHunt'); sv.type = 'button';
+    sv.addEventListener('click', async () => { const nm = v.name.trim(); if (isNew && !nm) { C.say('Add a name', !0); return; } sv.disabled = !0; const fields = {};
+      if (nm && nm !== p.name) { fields.Name = nm; const [a, ...b] = nm.split(' '); fields['First name'] = a; fields['Last name'] = b.join(' '); } if (v.title.trim() !== (p.title || '')) fields.Title = v.title.trim();
+      const ph = v.phones.split(/\n|,|;/).map((x) => x.trim()).filter(Boolean); const em = v.emails.split(/\n|,|;|\s/).map((x) => x.trim()).filter((x) => /@/.test(x)); if (ph.length || !isNew) fields['Phone number'] = ph; if (em.length || !isNew) fields.Email = em;
+      ['linkedin', 'facebook', 'instagram'].forEach((k) => { if (v[k].trim() !== (p[k] || '')) fields[{ linkedin: 'LinkedIn', facebook: 'Facebook', instagram: 'Instagram' }[k]] = v[k].trim(); });
+      try { if (isNew) await C.nhCall('create_record', { folderId: CT_ID, fieldKeys: 'label', fields: { ...fields, Company: [companyId || dash.params().cid] } }); else await C.nhCall('update_record', { folderId: CT_ID, recordId: p.id, fieldKeys: 'label', fields });
+        C.say(`✓ ${nm || p.name} ${isNew ? 'added' : 'saved'}`); dash.refresh('company_contacts'); C.closeSheet(); } catch (e) { sv.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } });
+    if (!isNew) { const del = el('button', 'cm-mini cm-pdel', '🗑 Delete this contact'); del.type = 'button'; del.title = 'Moves the contact to NetHunt’s trash (it can be restored there)';
+      del.addEventListener('click', async () => { if (!window.confirm(`Delete ${p.name || 'this contact'}? It goes to NetHunt’s trash and can be restored there.`)) return; del.disabled = !0;
+        try { await C.nhCall('delete_record', { folderId: CT_ID, recordId: p.id }); miLog({ action: 'Other', company_id: companyId || dash.params().cid, outcome: 'contact deleted', text: p.name || '' }); C.say(`🗑 ${p.name || 'Contact'} deleted`); dash.refresh('company_contacts'); C.closeSheet(); } catch (e) { del.disabled = !1; C.say(`Not deleted — ${C.nhErr(e)}`, !0); } });
+      row.append(del); }
+    row.append(sv); body.append(row); }, { center: !0 }); }
+// a ✎ on every person row (company page People and Power hour People)
+function personEditButtons() { const C = __cm; const pc = dash.data('company_contacts'); if ('ok' !== pc.status) return; const byName = new Map(pc.data.map((p) => [low(p.name), p]));
+  document.querySelectorAll('#company-people .cm-person, #cm-sheet:not([hidden]) .cm-phppl .cm-crow2').forEach((row) => { if (row.querySelector('.cm-pedit')) return; const nmEl = row.querySelector('.pn, .nm'); if (!nmEl) return; const p = byName.get(low(nmEl.textContent.trim())); if (!p) return;
+    const b = C.el('button', 'cm-mini cm-pedit', '✎'); b.type = 'button'; b.title = 'Edit name, title, phones, emails, LinkedIn'; b.addEventListener('click', (e) => { e.stopPropagation(); editPerson(e.currentTarget, p); }); nmEl.append(b); }); }
+
+// ===================== congresses: an expected next edition when the next date isn't announced yet =====================
+// yearly series whose last edition was in the past 12 months get a clearly marked “≈ expected” edition one year later, so planning isn't blind; it disappears once the real date is in the data
+function cgAugment() { const d = dash.data('congresses'); if ('ok' !== d.status || !Array.isArray(d.data) || d.data.__aug) return; const rows = d.data; const today = isoDay(Date.now()); const by = new Map();
+  rows.forEach((r) => { if (!r.event_id) return; (by.get(r.event_id) || by.set(r.event_id, []).get(r.event_id)).push(r); });
+  let n = 0; by.forEach((v) => { if (v.some((x) => x.start && x.start >= today)) return; const last = v.filter((x) => x.start).sort((a, b) => String(b.start).localeCompare(String(a.start)))[0]; if (!last) return;
+    if (last.start < addDays(today, -365)) return; const fq = String(last.frequency || ''); const sc = String(last.scope || '');
+    const yearly = /annual|yearly|every year|each year/i.test(fq) || (/not verified/i.test(fq) && /national|regional|state|subnational/i.test(sc) && !/global|world/i.test(sc)); if (!yearly || /cancel/i.test(last.status || '')) return;
+    const st = addDays(last.start, 364); const en = last.end ? addDays(last.end, 364) : ''; if (st < today) return;
+    rows.push({ ...last, id: `${last.event_id}-X`, start: st, end: en, year: +st.slice(0, 4), edition: '≈ expected — date not announced yet', status: 'Expected (yearly pattern) — check the official site', expected: !0 }); n++; });
+  Object.defineProperty(rows, '__aug', { value: n || 1, enumerable: !1 }); if (n) { cgKey = ''; hmKey = ''; }
+}
+// ===================== 💬 WhatsApp chats linked to a PERSON count for their company =====================
+// NetHunt often links a chat to the contact (the person), not the company. Medint reads the Contacts timeline, finds each person's company and adds those chats to the
+// company's history — so “last contact”, “they wrote”, Power hour, sequences (stop on reply), Recent activity and the AI summaries all see them.
+const CT_ID = '6682e9b8b6386800f586c0b0';
+const pcS = { at: 0, busy: !1, rows: [], map: (() => { try { return JSON.parse(localStorage.getItem('cmPersonCo') || '{}'); } catch { return {}; } })() };
+function personChats(force) {
+  const ch = dash.data('contact_history'); if ('ok' !== ch.status || pcS.busy || (!force && Date.now() - pcS.at < 10 * 60e3)) return; pcS.busy = !0;
+  (async () => { const from = dash.params().hist_from || new Date(Date.now() - 90 * 864e5).toISOString(); const ev = []; let cur = null; let n = 0;
+    do { const p = await __cm.nhCall('list_folder_timeline', { folderId: CT_ID, from, limit: 1000, types: ['chat'], ...(cur ? { cursor: cur } : {}) }); ev.push(...(p.events || [])); cur = p.nextCursor; n++; } while (cur && n < 3);
+    const need = [...new Set(ev.map((e) => e.recordId))].filter((id) => !(id in pcS.map)).slice(0, 30); // a few at a time — the rest on the next round
+    const q = need.slice(); await Promise.all([0, 1].map(async () => { while (q.length) { const id = q.shift(); try { const r = await __cm.nhCall('get_record', { folderId: CT_ID, recordId: id, fieldKeys: 'label' }); pcS.map[id] = { c: [].concat((r.fields || {}).Company || []).map((x) => (x && x.id) || x).filter(Boolean), n: (r.fields || {}).Name || [(r.fields || {})['First name'], (r.fields || {})['Last name']].filter(Boolean).join(' ') }; } catch { pcS.map[id] = { c: [], n: '' }; } } }));
+    try { localStorage.setItem('cmPersonCo', JSON.stringify(pcS.map)); } catch { /* storage off */ }
+    const rows = []; ev.forEach((e) => { const m = pcS.map[e.recordId]; if (!m || !m.c.length) return; m.c.forEach((co) => rows.push({ record_id: co, time: e.timeISO || new Date(Number(e.time)).toISOString(), type: 'chat', dir: e.chat && e.chat.status === 'NOT_REPLIED' ? 'in' : 'out', by: m.n || '', by_email: '', chat_number: e.chat ? String(e.chat.name || '') : '', preview: String((e.chat && e.chat.lastMessage && e.chat.lastMessage.body) || '').slice(0, 140), via: 'person', person_id: e.recordId, person: m.n || '' })); });
+    pcS.rows = rows; pcS.at = Date.now();
+    const d = dash.data('contact_history'); if ('ok' === d.status && Array.isArray(d.data)) { const have = new Set(d.data.map((x) => `${x.record_id}|${x.time}|${x.chat_number}`)); rows.forEach((r) => { const k = `${r.record_id}|${r.time}|${r.chat_number}`; if (!have.has(k)) { have.add(k); d.data.push(r); } }); }
+    pqMemo.key = ''; hmKey = ''; seqChecked = 0; seqCheckReplies(); try { drawHome(); } catch { /* not on Home */ }
+  })().catch(() => { pcS.at = Date.now() - 8 * 60e3; /* try again in ~2 minutes */ }).finally(() => { pcS.busy = !1; });
+}
+window.__m3 = !0; // the second half of Medint (sequences, registrations, report, people chats) is loaded
+setTimeout(() => { try { personChats(); } catch { /* not ready */ } }, 45e3); setInterval(() => { try { personChats(); } catch { /* offline */ } }, 5 * 60e3); // background: after the page has settled, then every 5 minutes
+// ===================== 🧾 what I logged — change an outcome or add to a note later =====================
+// NetHunt doesn't let other apps edit a call or comment once saved, so Medint corrects its own log and adds a short “✎ Update” comment under it in NetHunt
+const EDIT_ACTS = new Set(['Call', 'WhatsApp', 'Email', 'Comment', 'Meeting', 'Other']);
+function myEntries(cid) { const rows = homeLog() || []; const nm = me().name; const from = Date.now() - 14 * 864e5; return rows.filter((r) => r.company_id === cid && r.person === nm && r.epoch >= from && !r.voided && EDIT_ACTS.has(r.action) && !(r.action === 'Other' && !/^result:|^plan:/.test(r.outcome || '') ) && !/^plan:|^usage|^sequence|^registration|^client report/.test(r.outcome || '')).sort((a, b) => b.epoch - a.epoch); }
+function openMyEntries(anchor, cid, name) { const C = __cm; const el = C.el; needLog(Date.now() - 14 * 864e5);
+  C.openSheet(anchor, `🧾 What I logged · ${name || 'company'}`, (body) => { const L = myEntries(cid); if (!homeLog()) { body.append(loadingOrError()); return; }
+    body.append(el('p', 'mut', 'Your calls, messages and notes on this company in the last 14 days. Change the outcome (e.g. “No answer” → “Spoke”) or add to what you wrote — Medint updates its log and adds an “✎ Update” note in NetHunt.'));
+    if (!L.length) { body.append(el('div', 'hint', 'Nothing logged by you here in the last 14 days.')); return; }
+    L.forEach((r) => { const card = el('div', 'cm-myent'); const when = new Date(r.epoch).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      const ic = { Call: '☎', WhatsApp: '💬', Email: '✉', Comment: '📝', Meeting: '📅', Other: '•' }[r.action] || '•';
+      const head = el('div', 'h'); head.append(el('b', null, `${ic} ${r.action === 'Other' ? 'Result' : r.action}`), el('span', 'mut', ` · ${when}`), r.edited ? el('span', 'cm-edited', '✎ edited') : ''); card.append(head);
+      const out = String(r.outcome || '').replace(/^result:\s*/, ''); if (out) card.append(el('div', 'o', out)); if (r.text) card.append(el('div', 'mut t', String(r.text).slice(0, 400)));
+      const ed = el('button', 'cm-mini', '✎ Edit'); ed.type = 'button'; card.append(ed);
+      ed.addEventListener('click', () => { ed.remove(); const f = el('div', 'cm-myedit'); const res = { v: (out.match(/^(No answer|Left message|Spoke|Meeting set|Not interested)/) || [])[1] || '' };
+        const chips = el('div', 'cm-chips'); ['No answer', 'Left message', 'Spoke', 'Meeting set', 'Not interested'].forEach((x) => { const b = el('button', 'cm-chip', x); b.type = 'button'; b.setAttribute('aria-pressed', String(res.v === x)); b.addEventListener('click', () => { res.v = res.v === x ? '' : x; chips.querySelectorAll('.cm-chip').forEach((y) => y.setAttribute('aria-pressed', String(y.textContent === res.v))); }); chips.append(b); });
+        const ta = el('textarea', 'cm-phdraft'); ta.rows = 3; ta.value = r.text || ''; ta.placeholder = 'Add what happened';
+        const sv = el('button', 'cm-btn', '💾 Save change'); sv.type = 'button';
+        sv.addEventListener('click', async () => { sv.disabled = !0; const newOut = res.v ? (r.action === 'Other' ? `result: ${res.v}` : res.v) : r.outcome || ''; const newText = ta.value.trim();
+          if (newOut === (r.outcome || '') && newText === (r.text || '')) { C.say('Nothing changed'); sv.disabled = !1; return; }
+          try { await C.nhCall('update_record', { folderId: MI.LOG, recordId: r.id, fieldKeys: 'label', fields: { Outcome: String(newOut).slice(0, 250), Text: newText.slice(0, 5000) } });
+            const diff = [newOut !== (r.outcome || '') ? `${String(r.outcome || '—').replace(/^result:\s*/, '')} → ${String(newOut).replace(/^result:\s*/, '')}` : '', newText && newText !== (r.text || '') ? newText : ''].filter(Boolean).join(' — ');
+            await C.nhCall('create_record_comment', { folderId: C.NH_FOLDER, recordId: cid, text: `✎ Update to the ${r.action === 'Other' ? 'result' : r.action.toLowerCase()} of ${when}: ${diff}` });
+            r.outcome = newOut; r.text = newText; r.edited = !0; dS.at = 0; hmKey = ''; C.say('✓ Updated'); C.sheetDraw(); } catch (e) { sv.disabled = !1; C.say(`Not saved — ${C.nhErr(e)}`, !0); } });
+        const cx = el('button', 'cm-btn ghost', 'Cancel'); cx.type = 'button'; cx.addEventListener('click', () => C.sheetDraw()); const r2 = el('div', 'cm-chips'); r2.append(sv, cx); f.append(chips, ta, r2); card.append(f); ta.focus(); });
+      body.append(card); }); }, { center: !0 }); }
+// ===================== 💬 full chats: the company's own chats + every chat with its people (WhatsApp, LinkedIn…) =====================
+const chatS = new Map(); const trS = new Map();
+function companyChats(cid) { // read right away for the open company: each person's chat list (Contacts timeline)
+  const st = chatS.get(cid); if (st && (st.busy || Date.now() - st.at < 5 * 60e3)) return st.rows;
+  const pc = dash.data('company_contacts'); if (dash.params().cid !== cid || 'ok' !== pc.status || (pc.data[0] && pc.data[0].for_cid && pc.data[0].for_cid !== cid)) return st ? st.rows : null;
+  const ppl = pc.data.slice().sort(personSort).slice(0, 8); const S = { rows: st ? st.rows : null, busy: !0, at: Date.now() }; chatS.set(cid, S);
+  (async () => { const out = []; const q = ppl.slice(); await Promise.all([0, 1, 2].map(async () => { while (q.length) { const p = q.shift(); await (async () => { try { const r = await __cm.nhCall('list_record_timeline', { folderId: CT_ID, recordId: p.id, limit: 6, types: ['chat'] });
+    ((r && r.events) || []).forEach((e) => out.push({ folder: CT_ID, rid: p.id, person: p.name, id: e.id, time: e.timeISO || new Date(Number(e.time)).toISOString(), provider: (e.chat && e.chat.provider) || '', name: (e.chat && e.chat.name) || '', last: String((e.chat && e.chat.lastMessage && e.chat.lastMessage.body) || ''), count: (e.chat && e.chat.totalMessageCount) || 0, status: (e.chat && e.chat.status) || '' })); } catch { /* person not readable */ } })(); } })); // three at a time
+    S.rows = out.sort((a, b) => String(b.time).localeCompare(String(a.time))); })().finally(() => { S.busy = !1; S.at = Date.now(); phSig = ''; try { if (__cm.curView() === 'company' && dash.params().cid === cid) dash.setParams({ actv: (dash.params().actv || 0) + 1 }); const t = (document.getElementById('cm-sheet-title') || {}).textContent || ''; if (/^⚡/.test(t)) __cm.sheetDraw(); } catch { /* closed */ } });
+  return S.rows;
+}
+function chatTranscript(folder, rid, id, onDone) { const k = `${rid}|${id}`; const t = trS.get(k); if (t && (t.busy || t.msgs)) return t.msgs || null; trS.set(k, { busy: !0 });
+  __cm.nhCall('get_record_timeline_item', { folderId: folder, recordId: rid, timelineId: id }).then((r) => { trS.set(k, { msgs: (r && r.messages) || [] }); }).catch((e) => { trS.set(k, { msgs: [], err: __cm.nhErr(e) }); }).finally(() => { onDone && onDone(); }); return null; }
+function chatView(folder, rid, id, label, count) { const el = __cm.el; const box = el('div', 'cm-chatbox'); const b = el('button', 'cm-mini cm-chatopen', `▸ Full chat${count ? ` · ${count} messages` : ''}`); b.type = 'button';
+  const area = el('div', 'cm-chatmsgs'); area.hidden = !0;
+  const draw = () => { const k = `${rid}|${id}`; const t = trS.get(k) || {}; area.replaceChildren(); if (!t.msgs) { area.append(el('div', 'hint', 'Loading the chat…')); return; } if (t.err) { area.append(el('div', 'hint', `Couldn’t open it: ${t.err}`)); return; }
+    let day = ''; t.msgs.forEach((m) => { const d = new Date(Number(m.time) || m.time || m.date); const dd = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); if (dd !== day) { day = dd; area.append(el('div', 'cm-chatday', dd)); }
+      const bub = el('div', `cm-bub ${m.incoming ? 'in' : 'out'}`); bub.append(el('div', 'tx', String(m.body || (m.type && m.type !== 'text' ? `[${m.type}]` : '')).slice(0, 3000)), el('div', 'tm', `${m.incoming ? (label || 'They') : 'Us'} · ${d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`)); area.append(bub); });
+    setTimeout(() => { area.scrollTop = area.scrollHeight; }, 0); };
+  b.addEventListener('click', (e) => { e.stopPropagation(); area.hidden = !area.hidden; b.textContent = `${area.hidden ? '▸' : '▾'} Full chat${count ? ` · ${count} messages` : ''}`; if (!area.hidden) { chatTranscript(folder, rid, id, draw); draw(); } });
+  box.append(b, area); return box; }
+const LOGO_WA = '<svg viewBox="0 0 32 32" aria-hidden="true"><path fill="#25D366" d="M16 2.7C8.7 2.7 2.8 8.5 2.8 15.7c0 2.5.7 4.9 2 6.9L2.7 29.3l6.9-2.1c2 1.1 4.2 1.6 6.4 1.6 7.3 0 13.2-5.8 13.2-13S23.3 2.7 16 2.7z"/><path fill="#fff" d="M22.9 19.3c-.4-.2-2.1-1-2.4-1.1-.3-.1-.6-.2-.8.2-.2.4-.9 1.1-1.1 1.4-.2.2-.4.3-.8.1-.4-.2-1.5-.6-2.9-1.8-1.1-1-1.8-2.1-2-2.5-.2-.4 0-.6.2-.7.2-.2.4-.4.6-.7.2-.2.2-.4.4-.6.1-.2.1-.5 0-.7-.1-.2-.8-1.9-1.1-2.6-.3-.7-.6-.6-.8-.6h-.7c-.2 0-.6.1-1 .5-.3.4-1.3 1.2-1.3 3s1.3 3.4 1.5 3.7c.2.2 2.5 3.8 6 5.3.8.4 1.5.6 2 .7.8.3 1.6.2 2.2.1.7-.1 2.1-.9 2.4-1.7.3-.8.3-1.6.2-1.7-.1-.2-.3-.2-.7-.4z"/></svg>'; const LOGO_LI = '<svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#0A66C2"/><path fill="#fff" d="M9.2 12.5h3.5V23.4H9.2zM11 7.1a2 2 0 1 1 0 4.1 2 2 0 0 1 0-4.1zM14.9 12.5h3.3v1.5h.1c.5-.9 1.6-1.8 3.3-1.8 3.5 0 4.2 2.3 4.2 5.4v5.8h-3.5v-5.1c0-1.2 0-2.8-1.7-2.8s-2 1.3-2 2.7v5.2h-3.5z"/></svg>'; // brand marks, transparent background
+const chatLogo = (t) => (/linkedin/i.test(`${t.provider || ''} ${t.title || ''}`) ? LOGO_LI : LOGO_WA);
+const chatWho = (title) => String(title || '').replace(/^(WhatsApp|LinkedIn|Telegram|Instagram)\s*·\s*/i, '');
+const PROV = (p) => (/linkedin/i.test(p) ? 'LinkedIn' : /telegram/i.test(p) ? 'Telegram' : /instagram/i.test(p) ? 'Instagram' : 'WhatsApp');
+// company page: a “💬 Chats” card next to Recent activity — one tidy row per chat, the whole conversation one tap away
+const chatUi = { all: new Set() };
+function chatCard() { const old = document.getElementById('company-chats'); old && old.remove(); return; }
+function chatCardOld() { if (__cm.curView() !== 'company') return; const cid = dash.params().cid; const act = document.getElementById('company-activity'); if (!act || !cid) return;
+  const rows = companyChats(cid); let card = document.getElementById('company-chats'); const sig = `${cid}|${chatUi.all.has(cid)}|${rows ? rows.map((r) => r.id + r.count + r.status).join(',') : 'x'}`; if (card && card.dataset.sig === sig) return;
+  if (!rows || !rows.length) { if (card) card.remove(); return; } const el = __cm.el; const C = __cm;
+  if (!card) { card = el('section', 'cm-card cm-chats'); card.id = 'company-chats'; act.before(card); } card.dataset.sig = sig;
+  const waiting = rows.filter((r) => r.status === 'NOT_REPLIED').length; const hd = el('div', 'cm-chatshd'); hd.append(el('h2', null, '💬 Chats'), el('span', 'cm-chatcount', String(rows.length))); if (waiting) hd.append(el('span', 'cm-chatwait', `⏳ ${waiting} waiting for us`)); card.replaceChildren(hd);
+  const showAll = chatUi.all.has(cid); const list = showAll ? rows : rows.slice(0, 3);
+  list.forEach((r) => { const li = PROV(r.provider) === 'LinkedIn'; const row = el('div', `cm-chatrow ${li ? 'li' : 'wa'}${r.status === 'NOT_REPLIED' ? ' wait' : ''}`);
+    const av = avatarEl(r.person, '', '', r.rid); const top = el('div', 'top'); const who = el('div', 'who'); who.append(el('b', null, r.person));
+    const ch = el('span', `cm-chan ${li ? 'li' : 'wa'}`); ch.innerHTML = li ? (C.ICON_LI || '') : (C.ICON_WA || ''); ch.append(` ${li ? 'LinkedIn' : 'WhatsApp'}`); who.append(ch);
+    if (!li && /^\d{8,}$/.test(r.name)) who.append(el('span', 'cm-chatnum', `+${r.name}`));
+    const d = C.agoDays(r.time); const when = el('span', 'cm-chatwhen', d == null ? '' : d === 0 ? 'today' : d === 1 ? 'yesterday' : d < 30 ? `${d} days ago` : new Date(r.time).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: d > 300 ? 'numeric' : undefined }));
+    top.append(who, when); const bub = el('div', 'cm-chatlast'); bub.textContent = r.last.replace(/\s+\n/g, '\n').slice(0, 260); if (r.status === 'NOT_REPLIED') bub.prepend(el('span', 'cm-chatpill', 'They wrote · waiting for us'));
+    const acts = el('div', 'acts'); const cv = chatView(r.folder, r.rid, r.id, r.person.split(' ')[0], r.count); const ob = cv.querySelector('.cm-chatopen'); const msgs = cv.querySelector('.cm-chatmsgs'); ob.className = 'cm-chip cm-chatopen'; ob.textContent = `💬 Open chat · ${r.count} message${r.count === 1 ? '' : 's'}`; ob.addEventListener('click', () => { ob.textContent = `${msgs.hidden ? '💬 Open chat' : '✕ Close chat'} · ${r.count} message${r.count === 1 ? '' : 's'}`; });
+    acts.append(ob); if (!li && /^\d{8,}$/.test(r.name)) { const rp = el('a', `cm-chip cm-chatreply${r.status === 'NOT_REPLIED' ? ' hot' : ''}`); rp.href = `https://wa.me/${r.name}`; rp.target = '_blank'; rp.rel = 'noopener noreferrer'; rp.innerHTML = C.ICON_WA || ''; rp.append(r.status === 'NOT_REPLIED' ? ' Reply' : ' Message'); acts.append(rp); }
+    const body = el('div', 'body'); body.append(top, bub, acts, msgs); row.append(av, body); card.append(row); });
+  if (rows.length > 3) { const mb = el('button', 'cm-chip cm-chatmore', showAll ? '▴ Show fewer' : `▾ Show all ${rows.length} chats`); mb.type = 'button'; mb.addEventListener('click', () => { showAll ? chatUi.all.delete(cid) : chatUi.all.add(cid); chatCard(); }); card.append(mb); }
+}
+// a NetHunt call/comment you made ↔ your Medint log line (same company, same kind, within 3 minutes)
+function logRowFor(t, cid) { if (!t || !['call', 'comment'].includes(t.type)) return null; const rows = homeLog() || []; const nm = me().name; const tt = +new Date(t.time); if (Date.now() - tt > 14 * 864e5) return null;
+  const want = t.type === 'call' ? ['Call'] : ['Comment', 'Catalogue']; return rows.filter((r) => r.company_id === cid && r.person === nm && want.includes(r.action) && Math.abs(r.epoch - tt) < 3 * 60e3).sort((x, y) => Math.abs(x.epoch - tt) - Math.abs(y.epoch - tt))[0] || null; }
+function actEdit(t, host) { const C = __cm; const el = C.el; const cid = dash.params().cid; const r = logRowFor(t, cid); if (!r) return null; const b = el('button', 'cm-mini cm-evedit', r.edited ? '✎ edited · edit' : '✎ Edit'); b.type = 'button'; b.title = 'Change the outcome or add to what you wrote';
+  b.addEventListener('click', (ev) => { ev.stopPropagation(); const row = host || b.closest('.cm-ev, li'); if (!row || row.querySelector('.cm-myedit')) return; const out = String(r.outcome || '').replace(/^result:\s*/, ''); const f = el('div', 'cm-myedit'); const res = { v: (out.match(/^(No answer|Left message|Spoke|Meeting set|Not interested)/) || [])[1] || '' };
+    const chips = el('div', 'cm-chips'); if (r.action === 'Call') ['No answer', 'Left message', 'Spoke', 'Meeting set', 'Not interested'].forEach((x) => { const c = el('button', 'cm-chip', x); c.type = 'button'; c.setAttribute('aria-pressed', String(res.v === x)); c.addEventListener('click', () => { res.v = res.v === x ? '' : x; chips.querySelectorAll('.cm-chip').forEach((y) => y.setAttribute('aria-pressed', String(y.textContent === res.v))); }); chips.append(c); });
+    const ta = el('textarea', 'cm-phdraft'); ta.rows = 3; ta.value = r.text || (r.action === 'Call' ? '' : String(t.detail || '')); ta.placeholder = 'Add what happened';
+    const sv = el('button', 'cm-btn', '💾 Save'); sv.type = 'button'; const cx = el('button', 'cm-btn ghost', 'Cancel'); cx.type = 'button'; cx.addEventListener('click', () => f.remove());
+    sv.addEventListener('click', async () => { sv.disabled = !0; const newOut = res.v || r.outcome || ''; const newText = ta.value.trim(); if (newOut === (r.outcome || '') && newText === (r.text || '')) { f.remove(); return; }
+      const when = new Date(r.epoch).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      try { await C.nhCall('update_record', { folderId: MI.LOG, recordId: r.id, fieldKeys: 'label', fields: { Outcome: String(newOut).slice(0, 250), Text: newText.slice(0, 5000) } });
+        const diff = [newOut !== (r.outcome || '') ? `${r.outcome || '—'} → ${newOut}` : '', newText && newText !== (r.text || '') ? newText : ''].filter(Boolean).join(' — ');
+        await C.nhCall('create_record_comment', { folderId: C.NH_FOLDER, recordId: cid, text: `✎ Update to the ${r.action.toLowerCase()} of ${when}: ${diff}` });
+        r.outcome = newOut; r.text = newText; r.edited = !0; dS.at = 0; hmKey = ''; C.say('✓ Updated'); f.remove(); b.textContent = '✎ edited · edit'; dash.refresh('company_timeline'); } catch (e2) { sv.disabled = !1; C.say(`Not saved — ${C.nhErr(e2)}`, !0); } });
+    const r2 = el('div', 'cm-chips'); r2.append(sv, cx); f.append(chips, ta, r2); row.append(f); ta.focus(); });
+  return b; }
+function chatActs(t) { const C = __cm; const el = C.el; const box = el('div', 'cm-evacts'); const li = PROV(t.provider || '') === 'LinkedIn' || /linkedin/i.test(t.title || '');
+  if (t.chat_status === 'NOT_REPLIED') box.append(el('span', 'cm-chatpill', '⏳ They wrote · waiting for us'));
+  const cv = chatView(t.folder || C.NH_FOLDER, t.rid || dash.params().cid, t.id, String(t.person || '').split(' ')[0], t.chat_msgs); const ob = cv.querySelector('.cm-chatopen'); const msgs = cv.querySelector('.cm-chatmsgs'); ob.className = 'cm-chip cm-chatopen';
+  const lab = () => `${msgs.hidden ? '💬 Open chat' : '✕ Close chat'}${t.chat_msgs ? ` · ${t.chat_msgs}` : ''}`; ob.textContent = lab(); ob.addEventListener('click', () => { ob.textContent = lab(); }); box.append(ob);
+  const num = String(t.chat_name || '').replace(/\D/g, ''); if (!li && num.length >= 8) { const rp = el('a', `cm-chip cm-chatreply${t.chat_status === 'NOT_REPLIED' ? ' hot' : ''}`); rp.href = `https://wa.me/${num}`; rp.target = '_blank'; rp.rel = 'noopener noreferrer'; rp.innerHTML = C.ICON_WA || ''; rp.append(t.chat_status === 'NOT_REPLIED' ? ' Reply' : ' Message'); box.append(rp); }
+  const frag = el('div', 'cm-evchat'); frag.append(box, msgs); return frag; }
+const logKick = new Set(); function actLogKick() { if (__cm.curView() !== 'company') return; const cid = dash.params().cid; if (logKick.has(cid)) return; needLog(Date.now() - 14 * 864e5); if (!homeLog()) return; logKick.add(cid); dash.setParams({ actv: (dash.params().actv || 0) + 1 }); } // redraw Recent activity once the log is in, so ✎ appears on your own entries
+
 // ===================== 🎯 daily goals + fast team numbers =====================
 const tStats = { at: 0, key: '', data: null, busy: !1 };
 // today, this week and last week (same days) per person — from Medint's own database on the website (instant), else from NetHunt
@@ -2528,13 +2558,13 @@ function teamStats() {
   if (tStats.data && tStats.key === key && Date.now() - tStats.at < 120e3) return tStats.data;
   if (window.cmBoot && !tStats.busy && tStats.d1 !== !1) { tStats.busy = !0;
     const get = (f0, t0) => fetch(`/api/medint?summary=1&counts=1&from=${f0}&to=${t0}`, { credentials: 'same-origin' }).then((r) => (r.ok ? r.json() : null));
-    Promise.all([get(today, 9e15), get(w[0], 9e15), get(p[0], p[1])]).then(([a, b, c]) => { if (a && a.counts) { tStats.data = { today: a, week: b, prev: c, src: 'db' }; tStats.at = Date.now(); tStats.key = key; } else tStats.d1 = !1; }).catch(() => { tStats.d1 = !1; }).finally(() => { tStats.busy = !1; hmKey = ''; drawHome(); });
+    Promise.all([get(today, 9e15), get(w[0], 9e15), get(p[0], p[1]), get(today - 864e5, Date.now() - 864e5)]).then(([a, b, c, y]) => { if (a && a.counts) { tStats.data = { today: a, week: b, prev: c, yday: y && y.counts ? y : { counts: [], meetings: [] }, src: 'db' }; tStats.at = Date.now(); tStats.key = key; } else tStats.d1 = !1; }).catch(() => { tStats.d1 = !1; }).finally(() => { tStats.busy = !1; hmKey = ''; drawHome(); });
     if (tStats.data) return tStats.data; }
   if (!window.cmBoot || tStats.d1 === !1) { needLog(p[0]); const lgRows = homeLog(); if (!lgRows) return null;
-    const rows = lgRows.filter((r) => !r.voided); return { today: tally(rows.filter((r) => r.epoch >= today)), week: tally(rows.filter((r) => r.epoch >= w[0])), prev: tally(rows.filter((r) => r.epoch >= p[0] && r.epoch < p[1])), src: 'nethunt' }; }
+    const rows = lgRows.filter((r) => !r.voided); return { today: tally(rows.filter((r) => r.epoch >= today)), week: tally(rows.filter((r) => r.epoch >= w[0])), prev: tally(rows.filter((r) => r.epoch >= p[0] && r.epoch < p[1])), yday: tally(rows.filter((r) => r.epoch >= today - 864e5 && r.epoch < Date.now() - 864e5)), src: 'nethunt' }; }
   return tStats.data;
 }
-const statOf = (S, person, a) => !S ? 0 : a === 'touch' ? ['Call', 'WhatsApp', 'Email'].reduce((x, k) => x + statOf(S, person, k), 0) : a === 'note' ? statOf(S, person, 'Comment') : a === 'meet' ? ((S.meetings || []).find((x) => x.person === person) || {}).n || 0 : a === 'all' ? S.counts.filter((x) => x.person === person).reduce((x, c) => x + c.n, 0) : S.counts.filter((x) => x.person === person && x.action === (a === 'status' ? 'Status' : a)).reduce((x, c) => x + c.n, 0);
+const statOf = (S, person, a) => !S ? 0 : a === 'touch' ? ['Call', 'WhatsApp', 'Email'].reduce((x, k) => x + statOf(S, person, k), 0) : a === 'note' ? statOf(S, person, 'Comment') : a === 'meet' ? ((S.meetings || []).find((x) => x.person === person) || {}).n || 0 : a === 'all' ? S.counts.filter((x) => x.person === person && WORK_ACTIONS.has(x.action)).reduce((x, c) => x + c.n, 0) : S.counts.filter((x) => x.person === person && x.action === (a === 'status' ? 'Status' : a)).reduce((x, c) => x + c.n, 0);
 // each person's own day: their device's local date and time zone (works the same in Istanbul, Lima or Panama)
 // ONE target: companies worked (any call, WhatsApp, email, note or status change on a company) — first contacts and follow-ups both count
 const COMP_PER_HOUR = 6; const goalFor = (h) => Math.max(1, Math.round(h * COMP_PER_HOUR));
@@ -2587,10 +2617,11 @@ function maybeAskPlan() {
   if (!miWho || (window.cmBoot && miWho.role === 'Unknown') || planToday() || askedFor === localDay() || (__cm.uiFlags || {}).askedOn === localDay()) return; const sh = document.getElementById('cm-sheet'); if (!sh || !sh.hidden) return; askedFor = localDay(); try { localStorage.setItem('cmAskedPlan', askedFor); } catch { /* storage off */ } __cm.uiFlags = { ...(__cm.uiFlags || {}), askedOn: askedFor };
   const C = __cm; const el = C.el; const a = document.querySelector('.cm-tb-more') || document.body;
   C.openSheet(a, `🎯 Good ${new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 18 ? 'afternoon' : 'evening'}, ${me().name}`, (body) => {
+    const box = el('div', 'cm-askbox'); body.append(box); body = box;
     body.append(el('h2', 'cm-askh', 'How many hours will you work today?'), el('p', 'mut', `Your target is simple: companies worked — about ${COMP_PER_HOUR} per hour (calls, WhatsApps, emails or notes; first contacts and follow-ups both count).`));
     const row = el('div', 'cm-chips cm-askrow'); [1, 2, 3, 4, 5, 6, 7, 8].forEach((hh) => { const b = el('button', 'cm-chip', `${hh} h`); b.type = 'button'; b.addEventListener('click', () => { setPlan(hh); C.closeSheet(); }); row.append(b); });
     const off = el('button', 'cm-chip', '🌙 Day off'); off.type = 'button'; off.addEventListener('click', () => { setPlan(0); C.closeSheet(); }); row.append(off); body.append(row);
-    const later = el('button', 'cm-mini', 'Ask me later'); later.type = 'button'; later.addEventListener('click', () => C.closeSheet()); body.append(later);
+    const later = el('button', 'cm-mini cm-asklater', 'Ask me later'); later.type = 'button'; later.addEventListener('click', () => C.closeSheet()); body.append(later);
   }, { center: !0 });
 }
 // small goal bar in Power hour’s header
@@ -2628,8 +2659,8 @@ function drawHome() {
   const now = Date.now(); const t0 = new Date().toISOString().slice(0, 10); const inD = (d) => Math.round((new Date(d) - new Date(t0)) / 864e5);
   // where: all / where we work / my trip / a region
   const st = (r) => Math.max(r.stage_next || 0, r.stage_dunitech || 0, r.stage_motion || 0);
-  const active = new Set(ps.filter((r) => st(r) >= 3).map((r) => r.iso).filter(Boolean)); const regions = [...new Set(cs.map((c) => c.region).filter(Boolean))].sort();
-  const area = !hmS.area ? null : hmS.area === 'active' ? active : hmS.area === 'trip' ? new Set(C.TRIP_ISOS || []) : hmS.area.startsWith('g:') ? new Set(((C.savedGroups || []).find((g) => `g:${g.label}` === hmS.area) || {}).isos || []) : new Set(cs.filter((c) => `r:${c.region}` === hmS.area).map((c) => c.iso));
+  const AI0 = allowedIsos(); const active = new Set(ps.filter((r) => st(r) >= 3).map((r) => r.iso).filter(Boolean)); const regions = [...new Set(cs.filter((c) => !AI0 || AI0.has(c.iso)).map((c) => c.region).filter(Boolean))].sort();
+  const area = !hmS.area ? null : hmS.area === 'active' ? active : hmS.area === 'trip' ? new Set(C.TRIP_ISOS || [])  : hmS.area.startsWith('c:') ? new Set([hmS.area.slice(2)]) : hmS.area.startsWith('g:') ? new Set(((C.savedGroups || []).find((g) => `g:${g.label}` === hmS.area) || {}).isos || []) : new Set(cs.filter((c) => `r:${c.region}` === hmS.area).map((c) => c.iso));
   const inArea = (iso) => !area || area.has(iso);
   // header
   const hr = new Date().getHours(); const nm = me().name || 'Kavi';
@@ -2641,7 +2672,7 @@ function drawHome() {
     else mk.append(el('span', 'mut', 'No markets assigned to you yet — ask House to assign countries to you.'));
     hd.append(mk); }
   const fl = el('div', 'cm-cgfl'); const sel = (opts, v, on, title) => { const x = el('select', 'cm-phtpl'); x.title = title; opts.forEach(([a2, l]) => x.append(new Option(l, a2))); x.value = v; x.addEventListener('change', () => on(x.value)); return x; };
-  fl.append(sel([['', isHouse() ? '🌍 All countries' : '🌍 All my companies'], ['active', `⭐ Where we work (${active.size})`], ['trip', '🧳 My trip'], ...(C.savedGroups || []).map((g) => [`g:${g.label}`, `⭐ ${g.label}`]), ...regions.map((r) => [`r:${r}`, `🗺 ${r}`])], hmS.area, (v) => { hmS.area = v; drawHome(); }, 'Where'),
+  fl.append(sel([['', isHouse() ? '🌍 All countries' : '🌍 All my companies'], ['active', `⭐ Where we work (${active.size})`], ['trip', '🧳 My trip'], ...(C.savedGroups || []).map((g) => [`g:${g.label}`, `⭐ ${g.label}`]), ...(AI0 ? cs.filter((c) => AI0.has(c.iso)).sort((x, y) => x.country.localeCompare(y.country)).map((c) => [`c:${c.iso}`, `${C.flag(c.iso)} ${c.country}`]) : []), ...regions.map((r) => [`r:${r}`, `🗺 ${r}`])], hmS.area, (v) => { hmS.area = v; drawHome(); }, 'Where'),
     sel([['next', 'Next Shoulder'], ['dunitech', 'Dunitech'], ['motion', 'Motion Medical'], ['all', 'All brands']], k, (v) => dash.setParams({ ours: v }), 'Brand'));
   hd.append(fl); { const vc = viewChips(); vc && hd.append(vc); } wrap.append(hd);
   try { wrap.append(goalBox()); } catch { /* goals optional */ }
@@ -2700,18 +2731,19 @@ function drawHome() {
   { const c = card('🔔 Changes since your last visit'); c.classList.add('cm-hmwide'); const box = el('div', 'cm-hmchanges'); try { noHotInChanges = !0; __cm.drawChanges(box); } catch { box.append(el('div', 'hint', 'Nothing new.')); } finally { noHotInChanges = !1; } c.append(box); }
   { const [wa] = weekBounds(1); if (new Date().getDay() === 1 || new Date().getDay() === 2) { const c = card('📰 Last week’s report is ready', 'Open →', (ev) => openWeekly(ev.currentTarget)); c.classList.add('cm-hmwide'); c.append(el('div', 'mut', `Team results for the week of ${new Date(wa).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}, meetings this week and companies going cold — open it, or email it from there.`)); } }
   { const c = card('📈 My progress', 'More in Log →', (ev) => openLog((ev && ev.currentTarget) || document.querySelector('.cm-housebar .cm-chip') || document.body)); c.classList.add('cm-hmwide'); c.append(progressView(nm)); }
-  { const c = card(isHouse() ? '📊 Team this week' : '📊 My week', isHouse() ? '🧾 Log →' : null, (ev) => openLog((ev && ev.currentTarget) || document.querySelector('.cm-housebar .cm-chip') || document.body)); c.classList.add('cm-hmteam', 'cm-hmwide');
-    const S = teamStats(); if (!S) { daysData(); c.append(loadingOrError()); }
+  { const tDay = (__cm.uiFlags || {}).teamView === 'day'; const c = card(isHouse() ? (tDay ? '📊 Team today' : '📊 Team this week') : (tDay ? '📊 My day' : '📊 My week'), isHouse() ? '🧾 Log →' : null, (ev) => openLog((ev && ev.currentTarget) || document.querySelector('.cm-housebar .cm-chip') || document.body)); c.classList.add('cm-hmteam', 'cm-hmwide');
+    { const h2r = c.querySelector('.cm-h2row'); const sw = el('div', 'cm-seg cm-tmsw'); [['day', 'Today'], ['week', 'This week']].forEach(([k, l]) => { const b = el('button', null, l); b.type = 'button'; b.setAttribute('aria-pressed', String(tDay === (k === 'day'))); b.addEventListener('click', () => { __cm.uiFlags = { ...(__cm.uiFlags || {}), teamView: k }; hmKey = ''; drawHome(); }); sw.append(b); }); h2r && h2r.querySelector('h2') ? h2r.querySelector('h2').after(sw) : c.append(sw); }
+    const S0 = teamStats(); const S = S0 && tDay ? { ...S0, week: S0.today, prev: S0.yday || { counts: [], meetings: [] } } : S0; if (!S) { daysData(); c.append(loadingOrError()); }
     else { const ppl = [...new Set([...S.week.counts.map((x) => x.person), ...S.prev.counts.map((x) => x.person), ...(isHouse() ? miPeople().filter((p) => p.active).map((p) => p.name) : [nm])])].filter(Boolean).filter((p) => isHouse() || p === nm);
       const mx = Math.max(1, ...ppl.map((p) => statOf(S.week, p, 'all'))); const plans = new Map(); ('ok' === lg.status ? lg.data : []).filter((r) => r.action === 'Other' && /^plan:/.test(r.outcome || '') && r.epoch >= new Date().setHours(0, 0, 0, 0)).forEach((r) => plans.set(r.person, r.outcome.replace(/^plan:\s*/, '')));
       ppl.sort((x, y) => statOf(S.week, y, 'all') - statOf(S.week, x, 'all')).forEach((p) => { const n = statOf(S.week, p, 'all'), b = statOf(S.prev, p, 'all'); const r = el('div', 'cm-tmrow');
         const head = el('div', 'h'); const mine = miPeople().find((x) => x.name === p) || {}; const DD = daysData(); const td = DD && (DD.P.get(p) || new Map()).get(dayIdx(Date.now())); const hh = td && td.plan != null ? td.plan : plans.get(p) ? Number(String(plans.get(p)).match(/\d+/) || 0) : null;
-        head.append(avatarEl(p, mine.email, '', ''), el('b', null, p), el('span', 'cm-tmtoday', td || hh ? `today: ${td ? td.cos.size : 0}${hh ? ` / ${goalFor(hh)}` : ''} companies${hh === 0 ? ' · day off' : ''}` : ''));
-        const tot = el('div', 'tot'); tot.append(el('b', null, String(n)), el('span', `cm-dlt ${n > b ? 'up' : n < b ? 'down' : 'eq'}`, n > b ? `▲${n - b}` : n < b ? `▼${b - n}` : '=')); tot.title = `${n} actions this week · ${b} last week by this time`; head.append(tot); r.append(head);
+        head.append(avatarEl(p, mine.email, '', ''), el('b', null, p), el('span', 'cm-tmtoday', td || hh != null ? `today: ${td ? td.cos.size : 0}${hh ? ` / ${goalFor(hh)}` : ''} companies${hh ? ` · ${hh} h` : hh === 0 ? ' · day off' : ''}` : ''));
+        const tot = el('div', 'tot'); tot.append(el('b', null, String(n)), el('span', `cm-dlt ${n > b ? 'up' : n < b ? 'down' : 'eq'}`, n > b ? `▲${n - b}` : n < b ? `▼${b - n}` : '=')); tot.title = `${n} work actions ${tDay ? "today" : "this week"} (calls, WhatsApps, emails, notes, status changes, meetings, catalogues, deals, details found) · ${b} ${tDay ? "yesterday" : "last week"} by this time`; head.append(tot); r.append(head);
         if ((__cm.uiFlags || {}).teamBar) { const bar = el('div', 'gbar'); const f = el('i'); f.style.width = `${(n / mx) * 100}%`; bar.append(f); r.append(bar); }
         const nums = el('div', 'nums'); [['☎', 'Call', 'calls'], ['💬', 'WhatsApp', 'WhatsApp'], ['✉', 'Email', 'emails'], ['📝', 'Comment', 'notes'], ['📈', 'status', 'status']].forEach(([ic, k, l]) => { const v = statOf(S.week, p, k); const x = el('span', v ? '' : 'zero'); x.append(el('b', null, `${ic} ${v}`), el('small', null, l)); nums.append(x); }); r.append(nums);
         c.append(r); });
-      const ft = el('div', 'mut cm-logidle'); ft.append(`▲▼ vs last week by this time · ${S.src === 'db' ? 'from Medint’s own database' : 'from NetHunt'}`); if (isHouse()) { const tb = el('button', 'cm-mini', (__cm.uiFlags || {}).teamBar ? ' · hide comparison bars' : ' · show comparison bars'); tb.type = 'button'; tb.addEventListener('click', () => { __cm.uiFlags = { ...(__cm.uiFlags || {}), teamBar: !(__cm.uiFlags || {}).teamBar }; hmKey = ''; drawHome(); }); ft.append(tb); } c.append(ft); } }
+      const ft = el('div', 'mut cm-logidle'); ft.append(`▲▼ vs ${tDay ? 'yesterday' : 'last week'} by this time · ${S.src === 'db' ? 'from Medint’s own database' : 'from NetHunt'}`); if (isHouse()) { const tb = el('button', 'cm-mini', (__cm.uiFlags || {}).teamBar ? ' · hide comparison bars' : ' · show comparison bars'); tb.type = 'button'; tb.addEventListener('click', () => { __cm.uiFlags = { ...(__cm.uiFlags || {}), teamBar: !(__cm.uiFlags || {}).teamBar }; hmKey = ''; drawHome(); }); ft.append(tb); } c.append(ft); } }
 }
 
 // 🌍 Medint (website title) → Home
@@ -2729,5 +2761,6 @@ document.addEventListener('click', (e) => { const t = e.target.closest && e.targ
   // a small grab handle on the phone shows the header can be pulled down
   new MutationObserver(() => { const sh = document.querySelector('#cm-sheet .sh'); if (sh && !sh.querySelector('.cm-sheet-grab')) { const g = document.createElement('div'); g.className = 'cm-sheet-grab'; sh.prepend(g); } }).observe(document.body, { childList: !0, subtree: !0 });
 })();
-window.__cm2 = { hav, drawTripMap, openPowerHour, openCommentContacts, relatedLine, openRelatedCheck, actView, beforeWrite, onWrite, isHouse, openPeople, openLog, identityLine, me, setPhCtx: (id) => { miCtx = id; }, passAssign, assigneeOf, openAssignments, drawCongressPage, hotList, drawTripPage, drawHome, isIgnored, moreItems, openWeekly, rptData, rptHTML, rptMakeAI, personSort };
+window.__cm2 = { nextHide, nextInfo, nextTag, editPerson: (a, p, cid) => editPerson(a, p, cid), rowOut: (cid, ch) => { rowOut = { cid, ch, at: Date.now() }; setTimeout(attachRowOut, 300); }, openEnrich: (a) => (window.__cm3 && window.__cm3.openEnrichQ ? window.__cm3.openEnrichQ(a) : openEnrich(a)), chatLogo: (t) => chatLogo(t), chatActs: (t) => chatActs(t), actEdit: (t) => actEdit(t), phRank, hav, drawTripMap, openPowerHour, openCommentContacts, relatedLine, openRelatedCheck, actView, beforeWrite, onWrite, isHouse, openPeople, openLog, identityLine, me, setPhCtx: (id) => { miCtx = id; }, passAssign, assigneeOf, openAssignments, drawCongressPage, hotList, drawTripPage, drawHome, isIgnored, moreItems, openWeekly, get rptData() { return window.__cm3 && window.__cm3.rptData; }, get rptHTML() { return window.__cm3 && window.__cm3.rptHTML; }, get rptMakeAI() { return window.__cm3 && window.__cm3.rptMakeAI; }, personSort, allowedIsos };
 window.__cm.flush();
+window.__cm2x = { companyChats, enrichPanel, allowedIsos, isIgnored, openAssignments, stageGuess, openEnrich, localDay, personSort, phRank, googleMeetings, needLog, homeLog, me, miLog, items, saveItem, loadItems, itemsS, isoDay, addDays, miPeople, low, pcS, CT_ID, loadingOrError, isHouse, setIgnore }; // what app3 uses (set last, after everything above exists)

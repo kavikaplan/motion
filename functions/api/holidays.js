@@ -13,7 +13,7 @@ export async function onRequestGet({ request }) {
   const cal = u.searchParams.get('cal') || '';
   if (!/^en\.[a-z_]+#holiday@group\.v\.calendar\.google\.com$/.test(cal)) return ok({ error: 'Unknown holiday calendar', code: 'bad_request' }, 400, 'no-store');
   const from = (u.searchParams.get('from') || '').slice(0, 10); const to = (u.searchParams.get('to') || '').slice(0, 10);
-  const res = await fetch(`https://calendar.google.com/calendar/ical/${encodeURIComponent(cal)}/public/basic.ics`, { cf: { cacheTtl: 21600, cacheEverything: true } });
+  const res = await fetch(`https://calendar.google.com/calendar/ical/${encodeURIComponent(cal)}/public/basic.ics`, { signal: AbortSignal.timeout(10000), cf: { cacheTtl: 21600, cacheEverything: true } });
   if (!res.ok) return ok({ error: `Google answered ${res.status}`, code: 'server_unavailable' }, 502, 'no-store');
   const text = unfold(await res.text());
   const events = [];

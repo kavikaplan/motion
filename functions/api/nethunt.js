@@ -15,7 +15,7 @@
 import { F, whoIs, allowedSet, clearAccessCache } from '../_lib/access.js';
 
 const READ_TOOLS = new Set(['filter_records', 'get_record', 'list_records', 'search_records', 'list_record_timeline', 'list_folder_timeline', 'get_record_timeline_item', 'get_folder', 'list_folders']);
-const WRITE_TOOLS = new Set(['create_record', 'update_record', 'add_folder_field', 'create_record_comment', 'create_record_call_log']);
+const WRITE_TOOLS = new Set(['create_record', 'update_record', 'add_folder_field', 'create_record_comment', 'create_record_call_log', 'delete_record']);
 // Only the Companies and Contacts folders may be touched from the site.
 const FOLDERS = new Set(['6682e9b8b6386800f586c0b2', '6682e9b8b6386800f586c0b0', '6682e9b8b6386800f586c0af', '673c960008039266ccd2ead3', '6ad610066a38c15893c9d431', '6ad6100defa2051dc4ad1ab7', '6ad6101118904c2628e16827', '6ad6c66c23cd83301a3640da', '6ad6cf34adab0048f0a964a5']); // Companies, Contacts, Deals, Countries, Medint People / Log / Assignments
 
@@ -58,19 +58,20 @@ async function rpc(env, method, params, sid) {
   return { msg, sid: res.headers.get('mcp-session-id') || sid };
 }
 
+let connecting = null;
 async function connect(env) {
   const { msg, sid } = await rpc(env, 'initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'country-market-dashboard', version: '1.0' } });
   if (msg.error) throw new Error(`NetHunt MCP: ${msg.error.message}`);
   if (msg.result && msg.result.protocolVersion) protocol = msg.result.protocolVersion;
   // tell the server we're ready (a notification: no reply expected)
-  await fetch(env.NETHUNT_MCP_URL, { method: 'POST', headers: headers(env, sid), body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) }).catch(() => {});
+  await fetch(env.NETHUNT_MCP_URL, { method: 'POST', headers: headers(env, sid), body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }), signal: AbortSignal.timeout(8000) }).catch(() => {});
   session = sid || '';
   return session;
 }
 
 export async function callTool(env, name, args) {
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const sid = session ?? await connect(env);
+    const sid = session ?? await (connecting || (connecting = connect(env).finally(() => { connecting = null; }))); // one handshake shared by requests arriving together
     try {
       const { msg } = await rpc(env, 'tools/call', { name, arguments: args }, sid || undefined);
       if (msg.error) { const e = new Error(msg.error.message || 'NetHunt error'); e.status = 502; throw e; }
@@ -92,6 +93,7 @@ export async function onRequestPost({ request, env }) {
   let body; try { body = await request.json(); } catch { return json({ error: 'Bad request', code: 'bad_request' }, 400); }
   const tool = String(body.tool || ''); const args = body.args && typeof body.args === 'object' ? body.args : {};
   const write = WRITE_TOOLS.has(tool);
+  if (tool === 'delete_record' && args.folderId !== '6682e9b8b6386800f586c0b0') return json({ error: 'Only contacts can be deleted from the website.', code: 'not_allowed' }, 403); // goes to NetHunt's trash
   if (!READ_TOOLS.has(tool) && !write) return json({ error: `Tool “${tool}” isn’t allowed from the website.`, code: 'not_in_manifest' }, 403);
   if (write && String(env.ALLOW_WRITES).toLowerCase() !== 'true') return json({ error: 'Writing to NetHunt is switched off on this website.', code: 'not_in_manifest' }, 403);
   if (tool !== 'list_folders' && !args.folderId) return json({ error: 'folderId is required', code: 'bad_request' }, 400);

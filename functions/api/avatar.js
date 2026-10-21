@@ -9,7 +9,7 @@ async function sha256(s) { const b = await crypto.subtle.digest('SHA-256', new T
 export async function onRequestGet({ request }) {
   const u = new URL(request.url); const email = (u.searchParams.get('email') || '').trim().toLowerCase(); const link = u.searchParams.get('url') || '';
   try {
-    if (email && /@/.test(email)) { const r = await fetch(`https://www.gravatar.com/avatar/${await sha256(email)}?s=96&d=404`, { cf: { cacheTtl: 604800 } }); return r.ok ? ok(r) : none(); }
+    if (email && /@/.test(email)) { const r = await fetch(`https://www.gravatar.com/avatar/${await sha256(email)}?s=96&d=404`, { cf: { cacheTtl: 604800 }, signal: AbortSignal.timeout(8000) }); return r.ok ? ok(r) : none(); }
     if (/^https:\/\//i.test(link)) { const r = await fetch(link, { headers: { 'user-agent': 'Mozilla/5.0 (Medint)' }, signal: AbortSignal.timeout(8000) }); const ct = r.headers.get('content-type') || ''; const n = Number(r.headers.get('content-length') || 0);
       if (!r.ok || !/^image\//.test(ct) || n > 3e6) return none(); return ok(r); }
   } catch { /* fall through */ }

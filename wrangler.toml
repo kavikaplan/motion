@@ -7,3 +7,8 @@ compatibility_date = "2026-10-01"
 binding = "MEDINT_DB"
 database_name = "medint"
 database_id = "08eae55a-4a74-4dd9-b0f4-61219d2588c6"
+
+# Medint file library (catalogues, price lists, brochures for emails) — Cloudflare R2
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "medint-files"

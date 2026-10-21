@@ -10,7 +10,7 @@
 import { whoIs, F } from '../_lib/access.js';
 import { callTool } from './nethunt.js';
 const json = (b, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-const HOUSE = (env) => String(env.MEDINT_HOUSE || 'hi@kavikaplan.com,team@kavikaplan.com').toLowerCase().split(',').map((x) => x.trim());
+const HOUSE = (env) => String(env.MEDINT_HOUSE || 'hi@kavikaplan.com').toLowerCase().split(',').map((x) => x.trim());
 let readyDone = false;
 async function ready(db) {
   if (readyDone) return;

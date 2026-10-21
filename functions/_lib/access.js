@@ -19,12 +19,13 @@ async function all(callTool, args, pages = 10) {
   return out;
 }
 export async function whoIs(env, callTool, email) {
-  const e = low(email); const house = low(env.MEDINT_HOUSE || 'hi@kavikaplan.com,team@kavikaplan.com').split(',').map((x) => x.trim());
+  const e = low(email); const house = low(env.MEDINT_HOUSE || 'hi@kavikaplan.com').split(',').map((x) => x.trim());
   const people = await cached('people', () => all(callTool, { folderId: F.PEOPLE, fieldKeys: 'label', filter: {}, limit: 200 }, 2));
   const rec = people.find((r) => low(r.fields && r.fields.Email) === e);
   if (!rec) return { email: e, name: e.split('@')[0], role: house.includes(e) ? 'House' : 'Unknown', active: house.includes(e) };
   const f = rec.fields || {};
-  return { email: e, name: f.Name || e, role: f.Role === 'House' || house.includes(e) ? 'House' : 'Person', active: f.Active !== 'Paused' };
+  const boxes = [f['Default mailbox'], ...String(f['Other mailboxes'] || '').split(/[\s,;|]+/)].map(low).filter((x) => /@/.test(x));
+  return { email: e, name: f.Name || e, role: f.Role === 'House' || house.includes(e) ? 'House' : 'Person', active: f.Active !== 'Paused', mailboxes: [...new Set(boxes)] };
 }
 export async function rules(callTool) {
   return cached('rules', async () => (await all(callTool, { folderId: F.ASSIGN, fieldKeys: 'label', filter: {}, limit: 500 }, 2))
