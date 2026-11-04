@@ -3,15 +3,16 @@ import json, re, os, shutil, glob
 SITE = 'site/public'
 page = open('index.html').read()
 app = open('app.js').read()
-app2 = open('app2.js').read() if os.path.exists('app2.js') else ''  # APPMIN: source; the site uses the same readable source
+app2 = open('app2.js').read() if os.path.exists('app2.js') else ''
+app3 = open('app3.js').read() if os.path.exists('app3.js') else ''  # third source file (email, inbox, AI, leads, research…)  # APPMIN: source; the site uses the same readable source
 # split the page: markup/styles stay, inline script becomes page.js (own scope, like inside Claude)
 scripts = list(re.finditer(r'<script>([\s\S]*?)</script>', page))
 assert len(scripts) == 1, len(scripts)
 inline = scripts[0].group(1)
 markup = page[:scripts[0].start()] + page[scripts[0].end():]
-markup = markup.replace('<script src="app.js"></script>', '').replace('<script src="app2.js"></script>', '')
+markup = markup.replace('<script src="app.js"></script>', '').replace('<script src="app2.js"></script>', '').replace('<script src="app3.js"></script>', '')
 open(f'{SITE}/page.js', 'w').write('(function () {\n' + inline + '\n})();\n')
-open(f'{SITE}/app.js', 'w').write('(function () {\n' + app + '\n})();\n' + ('(function () {\n' + app2 + '\n})();\n' if app2 else ''))
+open(f'{SITE}/app.js', 'w').write('(function () {\n' + app + '\n})();\n' + ('(function () {\n' + app2 + '\n})();\n' if app2 else '') + ('(function () {\n' + app3 + '\n})();\n' if app3 else ''))
 # speed: compressed scripts with content-hashed names (browsers keep them; a new deploy gets new names)
 import hashlib, subprocess, base64
 def _min_hash(name):
@@ -31,7 +32,7 @@ html = f'''<!doctype html>
 <title>Medint</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌍</text></svg>">
 <link rel="stylesheet" href="theme.css">
-<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="d3.min.js"></script>
 <script src="dash-runtime.js"></script>
 </head><body>
 <div class="cmd-bar"><span class="t">🌍 Medint</span><button id="cmd-refresh" type="button" title="Reload live NetHunt data">↻ Refresh</button></div>
@@ -63,6 +64,14 @@ for i, blob in files.items():
     if not os.path.exists(src):
         src = {'pipeline': '/mnt/user-data/outputs/pipeline_snapshot.json', 'company_index': '/mnt/user-data/outputs/company_index.json', 'meeting_links': '/mnt/user-data/outputs/meeting_links.json', 'maps_places': '/mnt/user-data/outputs/maps_places.json', 'map_points': '/mnt/user-data/outputs/map_points.json', 'map_outlines': '/mnt/user-data/outputs/map_outlines.json', 'ortho_check': '/mnt/user-data/outputs/ortho_check.json', 'registration_rules': '/mnt/user-data/outputs/registration_rules.json'}[i]
     shutil.copy(src, f'{SITE}/data/{i}.json')
+# every company with its NetHunt Country (lower-case) — the server matches country / region assignments against it (functions/_lib/access.js)
+try:
+    _ci = json.load(open(f'{SITE}/data/company_index.json'))
+    _ai = [{'id': r['id'], 'c': '|'.join(sorted({x.strip().lower() for x in str(r.get('country') or '').split(' | ') if x.strip()}))} for r in _ci if r.get('id')]
+    json.dump(_ai, open(f'{SITE}/data/assign_index.json', 'w'), separators=(',', ':'))
+    print('assign_index', len(_ai))
+except Exception as _e:
+    print('assign_index not made:', _e)
 print('datasets', len(defs), 'files', sorted(files))
 
 # security header: allow this inline boot line (by hash), mic for dictation and location for "Near me" on this site only
@@ -74,4 +83,13 @@ hd = hd.replace('/*.js\n  Cache-Control: no-cache', '/dash-runtime.js\n  Cache-C
 if '/page.*.js' not in hd:
     hd += '/page.*.js\n  Cache-Control: public, max-age=31536000, immutable\n/app.*.js\n  Cache-Control: public, max-age=31536000, immutable\n'
 open(f'{SITE}/_headers', 'w').write(hd)
+# offline: the service worker, stamped with this build so each deploy refreshes the saved app
+if os.path.exists('sw.js'):
+    _v = PAGE_JS.split('.')[1] + APP_JS.split('.')[1]
+    open(f'{SITE}/sw.js', 'w').write(open('sw.js').read().replace('__MEDINT_VERSION__', _v).replace("'__MEDINT_SCRIPTS__'", f"'/{PAGE_JS}', '/{APP_JS}'"))
+    hd = open(f'{SITE}/_headers').read()
+    if '/sw.js' not in hd:
+        open(f'{SITE}/_headers', 'a').write('/sw.js\n  Cache-Control: no-cache\n')
+if os.path.exists('dash-runtime.js'):
+    shutil.copy('dash-runtime.js', f'{SITE}/dash-runtime.js')
 print('scripts', PAGE_JS, APP_JS)

@@ -11,6 +11,91 @@
     set(k, v) { try { localStorage.setItem(LS + k, JSON.stringify(v)); } catch { /* private mode */ } },
   };
 
+  // ---- offline & sign-in ----
+  // Changes made offline (or after the Cloudflare sign-in expired) wait in an outbox on this device and are sent when the connection is back.
+  // A small pill in the top bar says what is happening: 📴 offline · 🔑 sign in again · ⏳ sending. The service worker (sw.js) keeps the app and the last data.
+  const nativeFetch = window.fetch.bind(window);
+  const OB = 'outbox', OBF = 'outbox-failed';
+  const NH_Q = /^(update_record|create_record_comment|create_record_call_log)$/;
+  const LOG_FOLDER = '6ad6100defa2051dc4ad1ab7'; // the Medint Log: new entries can wait too
+  const net = { offline: navigator.onLine === false, signin: false, sending: false };
+  const obGet = () => store.get(OB, []);
+  const obSet = (L) => { store.set(OB, L.slice(-300)); pill(); };
+  const rel = (u) => String(u || '').replace(location.origin, '');
+  function queueable(url, init) {
+    const m = String((init && init.method) || 'GET').toUpperCase(); const u = rel(url);
+    if (!init || typeof init.body !== 'string') return '';
+    if (u.startsWith('/api/nethunt') && m === 'POST') { try { const b = JSON.parse(init.body); return NH_Q.test(b.tool) || (b.tool === 'create_record' && b.args && b.args.folderId === LOG_FOLDER) ? 'nh' : ''; } catch { return ''; } }
+    if ((u.startsWith('/api/medint') && m === 'POST') || (u.startsWith('/api/prefs') && m === 'PUT')) return 'post';
+    return '';
+  }
+  function enqueue(url, init, kind) {
+    const u = rel(url); const it = { id: `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, url: u, method: String(init.method || 'POST').toUpperCase(), body: init.body, at: Date.now(), kind, tries: 0 };
+    const L = obGet().filter((x) => !(u.startsWith('/api/prefs') && x.url === u)); // settings: only the newest copy matters
+    obSet([ ...L, it ]); setTimeout(netCheck, 1500);
+    clearTimeout(enqueue.t); enqueue.t = setTimeout(() => { window.__cm && window.__cm.say && window.__cm.say(net.signin ? '🔑 Saved on this device — sign in again to send it to NetHunt' : '📴 Saved on this device — it goes to NetHunt when you’re back online'); }, 300);
+    const text = kind === 'nh' ? JSON.stringify({ content: [ { type: 'text', text: JSON.stringify({ id: it.id, queued: true }) } ] }) : JSON.stringify({ ok: true, queued: true });
+    return new Response(text, { status: 200, headers: { 'content-type': 'application/json', 'x-medint-queued': '1' } });
+  }
+  window.fetch = async function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const kind = queueable(url, init);
+    if (!kind) return nativeFetch(input, init);
+    if (navigator.onLine === false) { net.offline = true; return enqueue(url, init, kind); }
+    try {
+      const r = await nativeFetch(input, init);
+      if (r.status === 401 && r.headers.get('x-medint-signin')) { net.signin = true; return enqueue(url, init, kind); }
+      return r;
+    } catch (_e) { return enqueue(url, init, kind); } // offline, or the sign-in expired (the answer is Cloudflare's sign-in page)
+  };
+  async function flush() {
+    if (net.sending || navigator.onLine === false) return; if (!obGet().length) return;
+    net.sending = true; pill(); let sent = 0, retry = !1; const drop = (id) => obSet(obGet().filter((x) => x.id !== id)); // always from the current list: changes queued meanwhile stay
+    for (const it of obGet()) {
+      try {
+        const r = await nativeFetch(it.url, { method: it.method, headers: { 'content-type': 'application/json' }, body: it.body, credentials: 'same-origin', redirect: 'manual', signal: AbortSignal.timeout(15000) });
+        if (r.type === 'opaqueredirect' || (r.status === 401 && r.headers.get('x-medint-signin'))) { net.signin = true; break; }
+        if (r.ok) { sent++; drop(it.id); continue; }
+        if (r.status >= 400 && r.status < 500 && ![ 401, 408, 429 ].includes(r.status)) { let msg = ''; try { msg = (await r.json()).error || ''; } catch { /* not JSON */ } store.set(OBF, [ ...store.get(OBF, []), { ...it, status: r.status, msg, failedAt: Date.now() } ].slice(-50)); drop(it.id); continue; }
+        obSet(obGet().map((x) => (x.id === it.id ? { ...x, tries: (x.tries || 0) + 1 } : x))); break; // the server is busy: try again later
+      } catch (_e) { retry = !0; break; } // offline again, or no answer: another try in 20 s
+    }
+    net.sending = false; pill();
+    if (retry && obGet().length) { clearTimeout(flush.t); flush.t = setTimeout(() => navigator.onLine !== false && flush(), 20000); }
+    if (sent && window.__cm && window.__cm.say) window.__cm.say(`✓ ${sent} change${sent === 1 ? '' : 's'} made offline sent to NetHunt`);
+  }
+  async function netCheck() {
+    if (navigator.onLine === false) { net.offline = true; pill(); return; }
+    try {
+      const r = await nativeFetch(`/api/me?ping=${Date.now()}`, { redirect: 'manual', cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(8000) });
+      net.offline = false; net.signin = r.type === 'opaqueredirect';
+      if (!net.signin && r.ok) flush();
+    } catch (_e) { net.offline = true; }
+    pill();
+  }
+  function pill() {
+    const bar = document.querySelector('.cmd-bar'); if (!bar) return;
+    let p = document.getElementById('cmd-net');
+    const n = obGet().length; const failed = store.get(OBF, []).length;
+    const st = net.signin ? 'signin' : net.offline ? 'offline' : net.sending ? 'sending' : n ? 'waiting' : failed ? 'failed' : '';
+    const txt = st === 'signin' ? `🔑 Sign in again${n ? ` · ${n} waiting` : ''}` : st === 'offline' ? `📴 Offline · saved data${n ? ` · ${n} to send` : ''}` : st === 'sending' ? `⏳ Sending ${n}…` : st === 'waiting' ? `⏳ ${n} waiting · send now` : st === 'failed' ? `⚠ ${failed} change${failed === 1 ? '' : 's'} not saved` : '';
+    if (!p) { if (!st) return; p = document.createElement('button'); p.id = 'cmd-net'; p.type = 'button'; const ref = document.getElementById('cmd-refresh'); ref ? ref.before(p) : bar.append(p);
+      p.addEventListener('click', () => { const s = p.dataset.st; if (s === 'signin') location.href = `/?signin=${Date.now()}`; else if (s === 'waiting') flush(); else if (s === 'failed') { const F = store.get(OBF, []); alert(`These changes were refused by NetHunt and not saved:\n\n${F.map((x) => `• ${new Date(x.at).toLocaleString()} — ${x.msg || `error ${x.status}`}`).join('\n')}`); store.set(OBF, []); pill(); } else netCheck(); }); }
+    if (p.dataset.st === st && p.textContent === txt) return;
+    p.dataset.st = st; p.textContent = txt; p.hidden = !st;
+    p.title = st === 'signin' ? 'Your Cloudflare sign-in has expired. Saved data still shows; changes wait here until you sign in.' : st === 'offline' ? 'No internet: Medint shows what was saved on this device. Notes, logs and status changes are kept and sent when you are back online.' : '';
+  }
+  window.addEventListener('online', () => { net.offline = false; netCheck(); });
+  window.addEventListener('offline', () => { net.offline = true; pill(); });
+  document.addEventListener('visibilitychange', () => { document.visibilityState === 'visible' && netCheck(); });
+  setInterval(() => { (obGet().length || net.signin || net.offline) && netCheck(); }, 60000);
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'medint-signin') { net.signin = true; pill(); } });
+    window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* not supported here */ }); });
+  }
+  if (/[?&]signin=/.test(location.search)) history.replaceState(history.state, '', location.pathname + location.hash); // back from signing in
+  window.cmNet = { net, flush, netCheck, outbox: obGet, pill };
+
   let DEFS = {}; let DEFAULTS = {};
   const loaders = {}; const calcs = {}; const cbs = [];
   const cache = new Map();      // id -> {key, status, data, columns, meta, cut, message, v}
@@ -56,7 +141,10 @@
     if (c && c.key === key) return c;
     const entry = { key, status: 'loading', data: [], columns: [], meta: [], v: (c ? c.v : 0) + 1 };
     cache.set(id, entry);
-    fetch(`data/${id}.json`, { cache: 'no-cache' }).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+    // a slow mobile line or a busy server (502 / 503 / 504) gets two more tries before the file counts as failed
+    const get = (n) => fetch(`data/${id}.json`, { cache: 'no-cache' }).then((r) => { if (!r.ok) { const e = new Error(`HTTP ${r.status}`); e.retry = r.status >= 500 || r.status === 429; throw e; } return r.json(); })
+      .catch((e) => { if (n < 2 && (e.retry || e instanceof TypeError)) return new Promise((ok) => setTimeout(ok, n ? 4000 : 1500)).then(() => get(n + 1)); throw e; });
+    get(0)
       .then((json) => { const rows = Array.isArray(json) ? json : json.rows || json.data || json.results || json; Object.assign(entry, asRows(rows), { status: 'ok' }); })
       .catch((e) => Object.assign(entry, { status: 'error', message: `Couldn’t load ${def.title || id}: ${e.message}` }))
       .finally(() => { entry.v += 1; schedule(); });
@@ -192,5 +280,9 @@
     ready = true; fire();
     const btn = document.getElementById('cmd-refresh');
     if (btn) btn.addEventListener('click', () => window.dash.refreshAll());
+    pill(); setTimeout(netCheck, 2500);
+    // save every data file on this device in the background (once a day), so all pages open offline
+    setTimeout(() => { try { if (navigator.onLine === false || net.signin || !('serviceWorker' in navigator)) return; const t = store.get('warmAt', 0); if (Date.now() - t < 864e5) return;
+      navigator.serviceWorker.ready.then((reg) => { reg.active && reg.active.postMessage({ type: 'medint-warm', urls: Object.entries(DEFS).filter(([, d]) => d && d.source && d.source.kind === 'file').map(([id]) => `/data/${id}.json`) }); store.set('warmAt', Date.now()); }); } catch (_e) { /* next time */ } }, 15000);
   };
 })();

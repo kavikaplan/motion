@@ -217,6 +217,12 @@
    "kind": "file"
   }
  },
+ "congress_companies": {
+  "title": "Congress companies",
+  "source": {
+   "kind": "file"
+  }
+ },
  "congresses": {
   "title": "Congresses",
   "source": {
@@ -273,6 +279,12 @@
    }
   }
  },
+ "exhibitions": {
+  "title": "Trade fairs",
+  "source": {
+   "kind": "file"
+  }
+ },
  "holidays": {
   "title": "Public holidays (next 3 weeks)",
   "source": {
@@ -294,6 +306,12 @@
  },
  "import_values": {
   "title": "Imports from trade data",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "kols": {
+  "title": "KOL surgeons",
   "source": {
    "kind": "file"
   }
@@ -384,6 +402,12 @@
  },
  "meeting_links": {
   "title": "Calendar ↔ company links",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "moh_leads": {
+  "title": "MOH leads",
   "source": {
    "kind": "file"
   }
@@ -497,6 +521,18 @@
  },
  "tender_awards": {
   "title": "Public tender awards",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "tender_suppliers": {
+  "title": "Tender suppliers",
+  "source": {
+   "kind": "file"
+  }
+ },
+ "trade_exhibitors": {
+  "title": "Trade-fair exhibitors",
   "source": {
    "kind": "file"
   }

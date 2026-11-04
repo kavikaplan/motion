@@ -1,0 +1,288 @@
+/* Country Market Dashboard — stand-alone runtime.
+   Replaces the claude.ai dashboard host: loads saved data files, runs live NetHunt
+   queries through /api/nethunt (the server keeps the NetHunt key), computes the
+   page's calculations and keeps filters in this browser. */
+(function () {
+  'use strict';
+  const API = '/api/nethunt';
+  const LS = 'cmd:';
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(LS + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(LS + k, JSON.stringify(v)); } catch { /* private mode */ } },
+  };
+
+  // ---- offline & sign-in ----
+  // Changes made offline (or after the Cloudflare sign-in expired) wait in an outbox on this device and are sent when the connection is back.
+  // A small pill in the top bar says what is happening: 📴 offline · 🔑 sign in again · ⏳ sending. The service worker (sw.js) keeps the app and the last data.
+  const nativeFetch = window.fetch.bind(window);
+  const OB = 'outbox', OBF = 'outbox-failed';
+  const NH_Q = /^(update_record|create_record_comment|create_record_call_log)$/;
+  const LOG_FOLDER = '6ad6100defa2051dc4ad1ab7'; // the Medint Log: new entries can wait too
+  const net = { offline: navigator.onLine === false, signin: false, sending: false };
+  const obGet = () => store.get(OB, []);
+  const obSet = (L) => { store.set(OB, L.slice(-300)); pill(); };
+  const rel = (u) => String(u || '').replace(location.origin, '');
+  function queueable(url, init) {
+    const m = String((init && init.method) || 'GET').toUpperCase(); const u = rel(url);
+    if (!init || typeof init.body !== 'string') return '';
+    if (u.startsWith('/api/nethunt') && m === 'POST') { try { const b = JSON.parse(init.body); return NH_Q.test(b.tool) || (b.tool === 'create_record' && b.args && b.args.folderId === LOG_FOLDER) ? 'nh' : ''; } catch { return ''; } }
+    if ((u.startsWith('/api/medint') && m === 'POST') || (u.startsWith('/api/prefs') && m === 'PUT')) return 'post';
+    return '';
+  }
+  function enqueue(url, init, kind) {
+    const u = rel(url); const it = { id: `q${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, url: u, method: String(init.method || 'POST').toUpperCase(), body: init.body, at: Date.now(), kind, tries: 0 };
+    const L = obGet().filter((x) => !(u.startsWith('/api/prefs') && x.url === u)); // settings: only the newest copy matters
+    obSet([ ...L, it ]); setTimeout(netCheck, 1500);
+    clearTimeout(enqueue.t); enqueue.t = setTimeout(() => { window.__cm && window.__cm.say && window.__cm.say(net.signin ? '🔑 Saved on this device — sign in again to send it to NetHunt' : '📴 Saved on this device — it goes to NetHunt when you’re back online'); }, 300);
+    const text = kind === 'nh' ? JSON.stringify({ content: [ { type: 'text', text: JSON.stringify({ id: it.id, queued: true }) } ] }) : JSON.stringify({ ok: true, queued: true });
+    return new Response(text, { status: 200, headers: { 'content-type': 'application/json', 'x-medint-queued': '1' } });
+  }
+  window.fetch = async function (input, init) {
+    const url = typeof input === 'string' ? input : (input && input.url) || '';
+    const kind = queueable(url, init);
+    if (!kind) return nativeFetch(input, init);
+    if (navigator.onLine === false) { net.offline = true; return enqueue(url, init, kind); }
+    try {
+      const r = await nativeFetch(input, init);
+      if (r.status === 401 && r.headers.get('x-medint-signin')) { net.signin = true; return enqueue(url, init, kind); }
+      return r;
+    } catch (_e) { return enqueue(url, init, kind); } // offline, or the sign-in expired (the answer is Cloudflare's sign-in page)
+  };
+  async function flush() {
+    if (net.sending || navigator.onLine === false) return; if (!obGet().length) return;
+    net.sending = true; pill(); let sent = 0, retry = !1; const drop = (id) => obSet(obGet().filter((x) => x.id !== id)); // always from the current list: changes queued meanwhile stay
+    for (const it of obGet()) {
+      try {
+        const r = await nativeFetch(it.url, { method: it.method, headers: { 'content-type': 'application/json' }, body: it.body, credentials: 'same-origin', redirect: 'manual', signal: AbortSignal.timeout(15000) });
+        if (r.type === 'opaqueredirect' || (r.status === 401 && r.headers.get('x-medint-signin'))) { net.signin = true; break; }
+        if (r.ok) { sent++; drop(it.id); continue; }
+        if (r.status >= 400 && r.status < 500 && ![ 401, 408, 429 ].includes(r.status)) { let msg = ''; try { msg = (await r.json()).error || ''; } catch { /* not JSON */ } store.set(OBF, [ ...store.get(OBF, []), { ...it, status: r.status, msg, failedAt: Date.now() } ].slice(-50)); drop(it.id); continue; }
+        obSet(obGet().map((x) => (x.id === it.id ? { ...x, tries: (x.tries || 0) + 1 } : x))); break; // the server is busy: try again later
+      } catch (_e) { retry = !0; break; } // offline again, or no answer: another try in 20 s
+    }
+    net.sending = false; pill();
+    if (retry && obGet().length) { clearTimeout(flush.t); flush.t = setTimeout(() => navigator.onLine !== false && flush(), 20000); }
+    if (sent && window.__cm && window.__cm.say) window.__cm.say(`✓ ${sent} change${sent === 1 ? '' : 's'} made offline sent to NetHunt`);
+  }
+  async function netCheck() {
+    if (navigator.onLine === false) { net.offline = true; pill(); return; }
+    try {
+      const r = await nativeFetch(`/api/me?ping=${Date.now()}`, { redirect: 'manual', cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.timeout(8000) });
+      net.offline = false; net.signin = r.type === 'opaqueredirect';
+      if (!net.signin && r.ok) flush();
+    } catch (_e) { net.offline = true; }
+    pill();
+  }
+  function pill() {
+    const bar = document.querySelector('.cmd-bar'); if (!bar) return;
+    let p = document.getElementById('cmd-net');
+    const n = obGet().length; const failed = store.get(OBF, []).length;
+    const st = net.signin ? 'signin' : net.offline ? 'offline' : net.sending ? 'sending' : n ? 'waiting' : failed ? 'failed' : '';
+    const txt = st === 'signin' ? `🔑 Sign in again${n ? ` · ${n} waiting` : ''}` : st === 'offline' ? `📴 Offline · saved data${n ? ` · ${n} to send` : ''}` : st === 'sending' ? `⏳ Sending ${n}…` : st === 'waiting' ? `⏳ ${n} waiting · send now` : st === 'failed' ? `⚠ ${failed} change${failed === 1 ? '' : 's'} not saved` : '';
+    if (!p) { if (!st) return; p = document.createElement('button'); p.id = 'cmd-net'; p.type = 'button'; const ref = document.getElementById('cmd-refresh'); ref ? ref.before(p) : bar.append(p);
+      p.addEventListener('click', () => { const s = p.dataset.st; if (s === 'signin') location.href = `/?signin=${Date.now()}`; else if (s === 'waiting') flush(); else if (s === 'failed') { const F = store.get(OBF, []); alert(`These changes were refused by NetHunt and not saved:\n\n${F.map((x) => `• ${new Date(x.at).toLocaleString()} — ${x.msg || `error ${x.status}`}`).join('\n')}`); store.set(OBF, []); pill(); } else netCheck(); }); }
+    if (p.dataset.st === st && p.textContent === txt) return;
+    p.dataset.st = st; p.textContent = txt; p.hidden = !st;
+    p.title = st === 'signin' ? 'Your Cloudflare sign-in has expired. Saved data still shows; changes wait here until you sign in.' : st === 'offline' ? 'No internet: Medint shows what was saved on this device. Notes, logs and status changes are kept and sent when you are back online.' : '';
+  }
+  window.addEventListener('online', () => { net.offline = false; netCheck(); });
+  window.addEventListener('offline', () => { net.offline = true; pill(); });
+  document.addEventListener('visibilitychange', () => { document.visibilityState === 'visible' && netCheck(); });
+  setInterval(() => { (obGet().length || net.signin || net.offline) && netCheck(); }, 60000);
+  if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'medint-signin') { net.signin = true; pill(); } });
+    window.addEventListener('load', () => { navigator.serviceWorker.register('/sw.js').catch(() => { /* not supported here */ }); });
+  }
+  if (/[?&]signin=/.test(location.search)) history.replaceState(history.state, '', location.pathname + location.hash); // back from signing in
+  window.cmNet = { net, flush, netCheck, outbox: obGet, pill };
+
+  let DEFS = {}; let DEFAULTS = {};
+  const loaders = {}; const calcs = {}; const cbs = [];
+  const cache = new Map();      // id -> {key, status, data, columns, meta, cut, message, v}
+  let params = {};
+  let ready = false; let fireQueued = false;
+  let holidaysFile = null;
+
+  async function api(tool, args) {
+    let res;
+    try { res = await fetch(API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ tool, args }), credentials: 'same-origin' }); }
+    catch (e) { const er = new Error('Could not reach the server'); er.code = 'server_unavailable'; er.retryable = true; throw er; }
+    let body = null; try { body = await res.json(); } catch { /* not JSON */ }
+    if (!res.ok) { const er = new Error((body && body.error) || `Server error ${res.status}`); er.code = (body && body.code) || (res.status === 403 ? 'not_in_manifest' : res.status === 401 ? 'needs_reauth' : 'server_unavailable'); throw er; }
+    return body; // {content:[{type:'text', text}]}
+  }
+
+  // {{name}} as a whole string -> typed value; inside text -> plain text
+  function fill(v) {
+    if (typeof v === 'string') {
+      const whole = v.match(/^\{\{(\w+)\}\}$/);
+      if (whole) return params[whole[1]] ?? null;
+      return v.replace(/\{\{(\w+)\}\}/g, (m, k) => (params[k] == null ? '' : String(params[k])));
+    }
+    if (Array.isArray(v)) return v.map(fill);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x)]));
+    return v;
+  }
+  const names = (v, out = new Set()) => { if (typeof v === 'string') (v.match(/\{\{(\w+)\}\}/g) || []).forEach((m) => out.add(m.slice(2, -2))); else if (Array.isArray(v)) v.forEach((x) => names(x, out)); else if (v && typeof v === 'object') Object.values(v).forEach((x) => names(x, out)); return out; };
+
+  const asRows = (out) => {
+    if (Array.isArray(out)) return { data: out, columns: out[0] ? Object.keys(out[0]) : [] };
+    if (out && Array.isArray(out.rows)) return { data: out.rows, columns: out.columns || (out.rows[0] ? Object.keys(out.rows[0]) : []), cut: out.cut, meta: out.meta };
+    if (out && out.data !== undefined) return { data: out.data, columns: out.columns || (Array.isArray(out.data) && out.data[0] ? Object.keys(out.data[0]) : []), cut: out.cut, meta: out.meta };
+    return { data: out, columns: [] };
+  };
+
+  function schedule() { if (fireQueued) return; fireQueued = true; requestAnimationFrame(() => { fireQueued = false; fire(); }); }
+  function fire() { if (!ready) return; for (const f of cbs) { try { f(); } catch (e) { console.error(e); } } }
+
+  function loadFile(id, def) {
+    const key = 'file';
+    const c = cache.get(id);
+    if (c && c.key === key) return c;
+    const entry = { key, status: 'loading', data: [], columns: [], meta: [], v: (c ? c.v : 0) + 1 };
+    cache.set(id, entry);
+    // a slow mobile line or a busy server (502 / 503 / 504) gets two more tries before the file counts as failed
+    const get = (n) => fetch(`data/${id}.json`, { cache: 'no-cache' }).then((r) => { if (!r.ok) { const e = new Error(`HTTP ${r.status}`); e.retry = r.status >= 500 || r.status === 429; throw e; } return r.json(); })
+      .catch((e) => { if (n < 2 && (e.retry || e instanceof TypeError)) return new Promise((ok) => setTimeout(ok, n ? 4000 : 1500)).then(() => get(n + 1)); throw e; });
+    get(0)
+      .then((json) => { const rows = Array.isArray(json) ? json : json.rows || json.data || json.results || json; Object.assign(entry, asRows(rows), { status: 'ok' }); })
+      .catch((e) => Object.assign(entry, { status: 'error', message: `Couldn’t load ${def.title || id}: ${e.message}` }))
+      .finally(() => { entry.v += 1; schedule(); });
+    return entry;
+  }
+
+  function loadQuery(id, def) {
+    const args = fill(def.source.args || {});
+    const key = JSON.stringify(args);
+    const c = cache.get(id);
+    if (c && c.key === key) return c;
+    const entry = { key, status: 'loading', data: c && c.status === 'ok' ? c.data : [], columns: [], meta: [], v: (c ? c.v : 0) + 1, refreshing: !!(c && c.status === 'ok') };
+    if (entry.refreshing) entry.status = 'ok';
+    cache.set(id, entry);
+    const tool = def.source.tool;
+    (async () => {
+      try {
+        let answer;
+        if (tool === 'list_events' && /#holiday@group\.v\.calendar\.google\.com$/.test(String(args.calendarId || ''))) {
+          // public holidays: from the saved file (all countries, 2026–2027); beyond that, live from Google's public feed via /api/holidays
+          const from = String(args.startTime || '').slice(0, 10); const to = String(args.endTime || '').slice(0, 10);
+          holidaysFile = holidaysFile || fetch('data/holidays_all.json').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+          const saved = await holidaysFile; const c = saved && saved.calendars && saved.calendars[args.calendarId];
+          const covered = saved && to <= '2028-01-01';
+          if (c && covered) {
+            const events = c.events.filter((e) => (!from || e.date >= from) && (!to || e.date < to)).map((e) => ({ id: `${e.date}-${e.name}`, summary: e.name, description: e.public ? 'Public holiday' : 'Observance', start: { date: e.date }, eventType: 'DEFAULT' }));
+            answer = { content: [{ type: 'text', text: JSON.stringify({ events }) }] };
+          } else {
+            const q = new URLSearchParams({ cal: args.calendarId, from, to });
+            const r = await fetch(`/api/holidays?${q}`, { credentials: 'same-origin' });
+            answer = await r.json(); if (!r.ok) throw new Error(answer.error || `Holidays: ${r.status}`);
+          }
+        } else if (tool === 'list_events') {
+          const q = new URLSearchParams({ from: String(args.startTime || '').slice(0, 10), to: String(args.endTime || '').slice(0, 10) });
+          const r = await fetch(`/api/calendar?${q}`, { credentials: 'same-origin' });
+          answer = await r.json();
+          if (!r.ok && answer.code === 'not_configured') answer = { events: [] }; // NetHunt-linked meetings still show
+          else if (!r.ok) throw new Error(answer.error || `Calendar: ${r.status}`);
+        } else answer = await api(tool, args);
+        let out;
+        if (loaders[id]) out = await loaders[id].fn({ answer, args, call: async (t, a) => api(t, a), read: {} });
+        else { const t = (answer.content || []).map((p) => p.text || '').join(''); let j; try { j = JSON.parse(t); } catch { j = t; } out = j; }
+        if (cache.get(id) !== entry) return; // superseded by a newer filter
+        Object.assign(entry, asRows(out), { status: 'ok', refreshing: false, message: undefined });
+      } catch (e) {
+        if (cache.get(id) !== entry) return;
+        Object.assign(entry, { status: 'error', refreshing: false, message: e.message || String(e) });
+      } finally { entry.v += 1; schedule(); }
+    })();
+    return entry;
+  }
+
+  function computeCalc(id) {
+    const def = calcs[id];
+    const ins = def.inputs.map((i) => data(i));
+    if (ins.some((x) => x.status === 'error')) return { status: 'error', data: [], message: 'An input didn’t load', columns: [], meta: [] };
+    if (ins.some((x) => x.status !== 'ok')) return { status: 'loading', data: [], columns: [], meta: [] };
+    const key = def.inputs.map((i) => { const c = cache.get(i); return c ? `${c.v}:${c.key}` : '?'; }).join('|');
+    const c = cache.get(id);
+    if (c && c.key === key) return c;
+    let entry;
+    try { const out = def.fn(...ins.map((x) => x.data)); entry = { key, status: 'ok', ...asRows(out), meta: [], v: (c ? c.v : 0) + 1 }; }
+    catch (e) { console.error(`calc ${id}`, e); entry = { key, status: 'error', data: [], columns: [], meta: [], message: e.message, v: (c ? c.v : 0) + 1 }; }
+    cache.set(id, entry);
+    return entry;
+  }
+
+  function data(id) {
+    let e;
+    if (calcs[id]) e = computeCalc(id);
+    else if (DEFS[id]) e = DEFS[id].source.kind === 'file' ? loadFile(id, DEFS[id]) : loadQuery(id, DEFS[id]);
+    else e = { status: 'missing', data: [], columns: [], meta: [] };
+    return { status: e.status, data: e.data, columns: e.columns || [], meta: e.meta || [], cut: e.cut, message: e.message, refreshing: !!e.refreshing, rows: e.data, value: e.data };
+  }
+
+  const clean = (p) => { const o = {}; for (const [k, v] of Object.entries(p || {})) { if (v === undefined) continue; if (v === null || ['string', 'number', 'boolean'].includes(typeof v) || (Array.isArray(v) && v.every((x) => x === null || ['string', 'number', 'boolean'].includes(typeof x)))) o[k] = v; } return o; };
+
+  window.dash = {
+    data,
+    onData(fn) { cbs.push(fn); if (ready) { try { fn(); } catch (e) { console.error(e); } } },
+    calc(id, def) { calcs[id] = def; },
+    loader(id, def) { loaders[id] = def; },
+    params: () => ({ ...params }),
+    setParams(p) { const c = clean(p); for (const [k, v] of Object.entries(c)) { if (v === null) delete params[k]; else params[k] = v; } store.set('params', params); schedule(); },
+    resetParams() { params = { ...DEFAULTS }; store.set('params', params); schedule(); },
+    setLink(l) { if (typeof l === 'string') history.replaceState(history.state, '', '#' + l); },
+    refresh(id) { cache.delete(id); schedule(); },
+    refreshAll() { for (const [id, d] of Object.entries(DEFS)) if (d.source.kind === 'query') cache.delete(id); for (const id of Object.keys(calcs)) cache.delete(id); schedule(); },
+    colors: ['#4C8DF6', '#E0703A', '#3FAE7A', '#D9A02B', '#D45C8C', '#8D74E8', '#4BB3C4', '#9AA0A6'],
+  };
+
+  // ---- the page's "claude" capabilities, served by this site ----
+  const mcp = {
+    async callTool(server, tool, input) { return api(tool, input || {}); },
+  };
+  // saved settings: kept on the server per login (phone and laptop share them), with this browser's copy as a fallback
+  const mergeSeed = (local, seed) => { if (!seed) return local; const out = JSON.parse(JSON.stringify(local || {})); out.ui = out.ui || {}; for (const [k, v] of Object.entries(seed.ui || {})) { if (Array.isArray(v) && Array.isArray(out.ui[k])) { const ids = new Set(out.ui[k].map((x) => x && x.id)); out.ui[k] = [...out.ui[k], ...v.filter((x) => !ids.has(x && x.id))]; } else if (out.ui[k] == null) out.ui[k] = v; } return out; };
+  const putT = {};
+  const db = {
+    doc(path) {
+      const key = 'db:' + path; const url = `/api/prefs?path=${encodeURIComponent(path)}`;
+      return {
+        async get() {
+          let v = store.get(key, undefined);
+          try { const r = await fetch(url, { credentials: 'same-origin', signal: AbortSignal.timeout(6000) }); if (r.ok) { const d = await r.json(); if (d.exists) v = d.data; else if (d.seed) { v = mergeSeed(v, d.seed); fetch(url, { method: 'PUT', credentials: 'same-origin', body: JSON.stringify(v) }).catch(() => {}); } if (v !== undefined) store.set(key, v); } } catch { /* offline: this browser's copy */ }
+          return { exists: v !== undefined, data: () => (v === undefined ? undefined : JSON.parse(JSON.stringify(v))) };
+        },
+        async set(d) { store.set(key, d); clearTimeout(putT[key]); putT[key] = setTimeout(() => { fetch(url, { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(d) }).catch(() => {}); }, 1200); },
+      };
+    },
+  };
+  const user = { id: async () => 'this-browser', isOwner: () => true, canEdit: () => true };
+  const downloads = {
+    async save({ filename, data: body }) {
+      const blob = body instanceof Blob ? body : new Blob([body], { type: /\.csv$/i.test(filename) ? 'text/csv' : 'application/octet-stream' });
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      return { outcome: 'saved' };
+    },
+  };
+  window.claude = { use: async (name) => ({ mcp, db, user, downloads }[name] || null) };
+
+  // ---- boot: definitions first, then the page's scripts ----
+  let lastW = 0;
+  window.addEventListener('resize', () => { const w = document.documentElement.clientWidth; if (w !== lastW) { lastW = w; schedule(); } });
+  window.cmBoot = async function (scripts) {
+    const [defs, defaults] = await Promise.all([fetch('datasets.json').then((r) => r.json()), fetch('params.json').then((r) => r.json()).catch(() => ({}))]);
+    DEFS = defs; DEFAULTS = defaults;
+    params = { ...defaults, ...store.get('params', {}) };
+    for (const src of scripts) {
+      await new Promise((resolve) => { const s = document.createElement('script'); s.src = src; s.onload = resolve; s.onerror = () => { console.error('failed to load', src); resolve(); }; document.body.append(s); });
+    }
+    ready = true; fire();
+    const btn = document.getElementById('cmd-refresh');
+    if (btn) btn.addEventListener('click', () => window.dash.refreshAll());
+    pill(); setTimeout(netCheck, 2500);
+    // save every data file on this device in the background (once a day), so all pages open offline
+    setTimeout(() => { try { if (navigator.onLine === false || net.signin || !('serviceWorker' in navigator)) return; const t = store.get('warmAt', 0); if (Date.now() - t < 864e5) return;
+      navigator.serviceWorker.ready.then((reg) => { reg.active && reg.active.postMessage({ type: 'medint-warm', urls: Object.entries(DEFS).filter(([, d]) => d && d.source && d.source.kind === 'file').map(([id]) => `/data/${id}.json`) }); store.set('warmAt', Date.now()); }); } catch (_e) { /* next time */ } }, 15000);
+  };
+})();
