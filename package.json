@@ -1,0 +1,7 @@
+{
+  "name": "medint-tests",
+  "private": true,
+  "description": "Automated scenario tests for Medint (dev only — not part of the website)",
+  "scripts": { "test": "node run.js" },
+  "devDependencies": { "jsdom": "24.1.3", "d3": "7.9.0" }
+}

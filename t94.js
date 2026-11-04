@@ -1,0 +1,15 @@
+// micro features: Power hour (local time, last said, call again, skip reason), company page line + pins, search by phone, shortcuts, memory
+const { run } = require('./harness');
+(async () => { const h = run({ site: true, params: { iso: 'CL', view: 'country', tags: ['chile'], ours: 'next', ctab: 'companies', csub: 'partners' } }); await h.settle(); await new Promise((r) => setTimeout(r, 2500)); await h.settle();
+  const W = h.w, D = h.d; W.__cm2.openPowerHour(D.body); await h.settle(); await new Promise((r) => setTimeout(r, 2600)); await h.settle(); const S = D.getElementById('cm-sheet');
+  console.log('PH last said:', !!S.querySelector('.cm-phlast'), (S.querySelector('.cm-phlast') || {}).textContent?.slice(0, 70)); console.log('call again chips:', [...S.querySelectorAll('.cm-phagain button')].map((b) => b.textContent).join(' | ')); console.log('skip reason button:', !!S.querySelector('.cm-skipwhy'));
+  const n0 = (D.getElementById('cm-sheet-title') || {}).textContent; const cid = S.querySelector('.cm-phwho .cm-co').dataset.openCompany; W.__cm.uiFlags = { ...(W.__cm.uiFlags || {}), phSnooze: { [cid]: Date.now() + 864e5 } };
+  D.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'n', bubbles: true })); await h.settle(); console.log('N key skips:', n0 !== (D.getElementById('cm-sheet-title') || {}).textContent);
+  W.__cm.closeSheet && W.__cm.closeSheet(); W.dash.setParams({ view: 'company', cid, iso: 'CL' }); await h.settle(); await new Promise((r) => setTimeout(r, 2600)); await h.settle();
+  console.log('no duplicate last-contact line:', !D.querySelector('#company-view .cm-coline'), '| team avatars:', D.querySelectorAll('#company-view .cm-cnamerow .cm-tav').length); console.log('pin buttons:', D.querySelectorAll('#company-view .cm-pinb').length);
+  D.dispatchEvent(new W.KeyboardEvent('keydown', { key: '/', bubbles: true })); console.log('/ focuses search:', D.activeElement && D.activeElement.id === 'cm-find');
+  const ch = W.dash.data('contact_history'); const num = ('ok' === ch.status ? ch.data : []).map((e) => e.chat_number).find((x) => String(x || '').replace(/\D/g, '').length >= 7); const f = D.getElementById('cm-find');
+  if (num) { f.value = String(num).replace(/\D/g, '').slice(-6); f.dispatchEvent(new W.Event('input', { bubbles: true })); await new Promise((r) => setTimeout(r, 400)); console.log('search by phone:', D.querySelectorAll('#cm-find-list .cm-findx').length, 'result(s)'); } else console.log('search by phone: no WhatsApp numbers in test data');
+  W.dash.setParams({ view: 'country', iso: 'CL', tags: ['chile'], psort: 'value' }); await h.settle(); await new Promise((r) => setTimeout(r, 2600)); W.dash.setParams({ view: 'country', iso: 'PE', tags: ['peru'], psort: null }); await h.settle(); await new Promise((r) => setTimeout(r, 2600)); W.dash.setParams({ view: 'country', iso: 'CL', tags: ['chile'], psort: null }); await h.settle(); await new Promise((r) => setTimeout(r, 2600));
+  console.log('Chile remembers its sort:', W.dash.params().psort);
+  console.log('errors', h.errors.length, h.errors.join('').slice(0, 300)); process.exit(0); })();

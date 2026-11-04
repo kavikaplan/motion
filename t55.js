@@ -1,0 +1,12 @@
+const { run } = require('./harness');
+const CO = '6908ae29847fe001cd52bfef';
+const claude = () => ({ use: async (n) => n === 'mcp' ? { callTool: async (s, t, i) => { let out = { id: 'x', records: [] };
+  if (t === 'list_folder_timeline' && i.folderId === '6682e9b8b6386800f586c0b0') out = { events: [{ id: 'E1', recordId: 'P1', time: Date.now() - 3600e3, timeISO: new Date(Date.now() - 3600e3).toISOString(), type: 'chat', chat: { status: 'NOT_REPLIED', lastMessage: { body: 'Hola, ¿nos envían la lista de precios?' }, name: '56911112222' } }] };
+  if (t === 'get_record' && i.recordId === 'P1') out = { id: 'P1', fields: { Name: 'Pedro Soto', Company: [CO] } };
+  return { content: [{ type: 'text', text: JSON.stringify(out) }] }; } } : null });
+(async () => { const h = run({ params: { iso: 'CL', view: 'home', ours: 'next' }, claude }); await h.settle(); h.w.dash.data('contact_history'); await h.settle(); await new Promise((r) => setTimeout(r, 4600)); await h.settle(); await new Promise((r) => setTimeout(r, 300));
+  const d = h.w.dash.data('contact_history').data; const mine = d.filter((x) => x.via === 'person'); console.log('person chats added:', mine.length, mine[0] && `${mine[0].record_id === CO} ${mine[0].dir} ${mine[0].preview}`);
+  const rc = h.w.__cm.realContact(CO); console.log('last contact now:', rc && rc.type, rc && rc.pending, rc && rc.ago);
+  h.w.dash.setParams({ view: 'company', cid: CO, iso: 'CL', tags: ['chile'] }); await h.settle(); h.d.querySelector('.cm-cph') && h.d.querySelector('.cm-cph').click(); await h.settle(); await h.settle();
+  console.log('PH activity has it:', /Pedro Soto/.test((h.d.querySelector('.cm-phact') || {}).textContent || ''));
+  console.log('errors', h.errors.length, h.errors.join('').slice(0, 300)); process.exit(0); })();

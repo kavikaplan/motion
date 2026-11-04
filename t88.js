@@ -1,0 +1,8 @@
+const { run } = require('./harness');
+(async () => { const h = run({ params: { view: 'home' } }); await h.settle(); await new Promise((r) => setTimeout(r, 2000)); h.w.dash.setParams({ view: 'congresses' }); await h.settle(); await new Promise((r) => setTimeout(r, 800)); await h.settle(); console.log('view hidden?', h.d.getElementById('congress-view').className);
+  h.w.cmCongressTab('fairs'); await h.settle(); await new Promise((r) => setTimeout(r, 600)); h.w.__cm.redrawCongress(); await h.settle();
+  const R = () => h.d.getElementById('congress-view'); console.log('html:', R().innerHTML.slice(0, 300), '| exh status', h.w.dash.data('exhibitions').status, h.w.dash.data('congresses').status); console.log('tabs:', [...R().querySelectorAll('.cm-cgtabs .cm-chip')].map((b) => b.textContent).join(' | '));
+  console.log('fairs:', (R().querySelector('.cm-fxcount') || {}).textContent, '| cards:', R().querySelectorAll('.cm-fxcard').length, '| first:', (R().querySelector('.cm-fxcard h3') || {}).textContent, '|', (R().querySelector('.cm-fxcard .meta') || {}).textContent);
+  const ex = [...R().querySelectorAll('.cm-fxcard .cm-mini')].find((b) => /exhibitors in Medint/.test(b.textContent)); console.log('exh link:', ex && ex.textContent); if (ex) { ex.click(); await h.settle(); await new Promise((r) => setTimeout(r, 400)); h.w.__cm.redrawCongress(); await h.settle(); }
+  console.log('exh tab:', (R().querySelector('p.mut') || {}).textContent?.slice(0, 200), '| rows:', R().querySelectorAll('.cm-fxrow').length, '| in NH:', R().querySelectorAll('.cm-fxrow .cm-chip.on').length);
+  console.log('errors', h.errors.length, h.errors.join('').slice(0, 300)); process.exit(0); })();

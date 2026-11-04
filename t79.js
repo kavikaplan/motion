@@ -1,0 +1,10 @@
+const { run } = require('./harness');
+const calls = [];
+const claude = () => ({ use: async (n) => n === 'mcp' ? { callTool: async (s, t, i) => { calls.push(t + ' ' + JSON.stringify(i).slice(0, 160)); const r = t === 'get_record' ? { fields: i.recordId === 'A' ? {} : { 'Phone number': ['+57 1 234'], Email: ['x@y.co'], Notes: 'dup note' } } : { records: [] }; return { content: [{ type: 'text', text: JSON.stringify(r) }] }; } } : null });
+(async () => { const h = run({ params: { view: 'home', ours: 'next' }, claude }); await h.settle(); await new Promise((r) => setTimeout(r, 2500)); h.w.dash.data('tender_awards'); h.w.dash.data('registrations'); await h.settle(); await new Promise((r) => setTimeout(r, 800));
+  h.w.dash.setParams({ view: 'country', iso: 'CO', tags: ['colombia'] }); await h.settle();
+  h.w.__cm3.openDuplicates(h.d.body); await new Promise((r) => setTimeout(r, 400)); await h.settle(); const S = h.d.getElementById('cm-sheet');
+  console.log('CO:', (S.querySelector('p.mut') || {}).textContent?.slice(0, 60)); [...S.querySelectorAll('.cm-dupg')].slice(0, 4).forEach((g) => console.log('  ', g.textContent.slice(0, 200)));
+  const cs = S.querySelector('.cm-eqbar select'); cs.value = 'all'; const t0 = Date.now(); cs.dispatchEvent(new h.w.Event('change')); await h.settle(); console.log('ALL:', (S.querySelector('p.mut') || {}).textContent?.slice(0, 60), 'ms', Date.now() - t0);
+  [...S.querySelectorAll('.cm-dupg')].slice(0, 6).forEach((g) => console.log('  ', g.textContent.slice(0, 170)));
+  console.log('errors', h.errors.length, h.errors.join('').slice(0, 300)); process.exit(0); })();

@@ -1,0 +1,13 @@
+const { run } = require('./harness');
+(async () => { const h = run({ params: { view: 'home', ours: 'next' } }); await h.settle(); await new Promise((r) => setTimeout(r, 2500)); h.w.cmBoot = { x: 1 };
+  const R = (o) => Promise.resolve({ ok: true, status: 200, json: async () => o });
+  h.w.fetch = (u) => { u = String(u); if (u.startsWith('/api/qualify')) return R({ verdict: /SENSI/.test(decodeURIComponent(u)) ? 'ortho' : 'not', reason: 'web says so', website: 'https://x.pa' }); if (u.startsWith('/api/enrich')) return R({ items: [{ kind: 'phone', value: '+507 1' }], pages: [], search_ready: true }); return R({}); };
+  h.w.dash.setParams({ view: 'country', iso: 'PA', tags: ['panama'] }); h.w.__cm3 && h.w.__cm3.resOn && h.w.__cm3.resOn(); await h.settle(); await new Promise((r) => setTimeout(r, 400)); await h.settle(); h.w.dash.data('tender_awards'); h.w.dash.data('tender_suppliers'); await h.settle(); await new Promise((r) => setTimeout(r, 500)); await h.settle();
+  h.w.cmOpenLeads('PA'); await new Promise((r) => setTimeout(r, 300)); await h.settle(); const S = () => h.d.getElementById('cm-sheet');
+  const lab = () => [...S().querySelectorAll('.cm-lead')].filter((x) => !x.hidden).map((x) => `${x.querySelector('.t').textContent.slice(0, 22)}=${(x.nextElementSibling && x.nextElementSibling.querySelector('.cm-qlchip') || {}).textContent}`);
+  console.log('sources:', ['tender research','MOH portal','at '].map((k) => [...S().querySelectorAll('.cm-leadfind')].filter((x) => x.textContent.includes(k)).length).join(' / '), '| total rows', S().querySelectorAll('.cm-lead').length);
+  console.log('chips:', [...S().querySelectorAll('.cm-qlbar .cm-chip')].map((c) => c.textContent).join(' | '));
+  console.log('shown:', lab().join(' ; '));
+  [...S().querySelectorAll('.cm-qlbar button')].find((b) => /Prequalify/.test(b.textContent)).click(); await new Promise((r) => setTimeout(r, 1500)); await h.settle();
+  console.log('after:', [...S().querySelectorAll('.cm-qlbar .cm-chip')].map((c) => c.textContent).join(' | '));
+  console.log('errors', h.errors.length, h.errors.join('').slice(0, 300)); process.exit(0); })();

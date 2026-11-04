@@ -1,0 +1,28 @@
+// 🕒 schedule send (server queue in D1, sent once, cancel / move / now / cron) — node:sqlite stands in for Cloudflare D1
+(async () => { const P = require('path'); const { DatabaseSync } = require('node:sqlite'); const bad = [];
+  const sq = new DatabaseSync(':memory:'); const D1 = { prepare: (sql) => { const st = { args: [], bind: (...a) => { st.args = a; return st; }, run: async () => { const r = sq.prepare(sql).run(...st.args); return { meta: { changes: r.changes } }; }, first: async () => sq.prepare(sql).get(...st.args) || null, all: async () => ({ results: sq.prepare(sql).all(...st.args) }) }; return st; } };
+  const sent = []; global.fetch = async (u, o = {}) => { u = String(u); if (u.includes('oauth2.googleapis.com/token')) return new Response(JSON.stringify({ access_token: 'tok', expires_in: 3600 }));
+    if (u.includes('settings/sendAs')) return new Response(JSON.stringify({ sendAs: [{ sendAsEmail: 'hi@kavikaplan.com', isDefault: true, displayName: 'Kavi' }] }));
+    if (u.includes('messages/send')) { sent.push(JSON.parse(o.body)); return new Response(JSON.stringify({ id: `m${sent.length}`, threadId: 't1' })); } return new Response('{}', { status: 404 }); };
+  const { seal } = await import(P.join(__dirname, '../functions/_lib/gmail.js')); const G = await import(P.join(__dirname, '../functions/api/gmail/[[path]].js'));
+  const env = { GOOGLE_CLIENT_ID: 'x', GOOGLE_CLIENT_SECRET: 'y', TOKEN_KEY: 'k', MEDINT_DB: D1, CRON_KEY: 'secret' };
+  sq.exec('CREATE TABLE IF NOT EXISTS gmail_accounts (mailbox TEXT PRIMARY KEY, token TEXT, sendas TEXT, by TEXT, at INTEGER)'); sq.prepare('INSERT INTO gmail_accounts VALUES (?, ?, NULL, ?, 0)').run('hi@kavikaplan.com', await seal(env, 'refresh'), 'hi@kavikaplan.com');
+  const call = async (path, method, body, hdr = {}) => { const r = await G.onRequest({ request: new Request(`https://m/api/gmail/${path}`, { method, headers: { 'content-type': 'application/json', 'cf-access-authenticated-user-email': 'hi@kavikaplan.com', ...hdr }, ...(body ? { body: JSON.stringify(body) } : {}) }), env, params: { path: [path.split('?')[0]] } }); return [r.status, await r.json()]; };
+  const msg = { mailbox: 'hi@kavikaplan.com', to: 'ana@promed.pa', subject: 'Catalogue', text: 'Hola Ana', html: '<p>Hola Ana</p>' };
+  let [s1, r1] = await call('send', 'POST', { ...msg, sendAt: Date.now() + 3 * 36e5 }); console.log('schedule:', s1, JSON.stringify(r1).slice(0, 90)); if (!r1.scheduled || sent.length) bad.push('schedule');
+  let [, l1] = await call('scheduled', 'GET'); console.log('list:', l1.rows.map((x) => `${x.subject} ${x.status}`).join(', ')); if (l1.rows.length !== 1 || l1.rows[0].status !== 'pending') bad.push('list');
+  let [, d0] = await call('scheduled', 'POST', { action: 'run' }); if (d0.sent || sent.length) bad.push('sent too early');
+  await call('scheduled', 'POST', { action: 'move', id: r1.id, sendAt: Date.now() + 864e5 }); let [, l2] = await call('scheduled', 'GET'); if (!(l2.rows[0].send_at > Date.now() + 8e7)) bad.push('move');
+  let [, n1] = await call('scheduled', 'POST', { action: 'now', id: r1.id }); console.log('send now:', JSON.stringify(n1), '| gmail calls:', sent.length); if (n1.sent !== 1 || sent.length !== 1) bad.push('now');
+  await call('scheduled', 'POST', { action: 'run' }); if (sent.length !== 1) bad.push('sent twice');
+  let [s2, r2] = await call('send', 'POST', { ...msg, subject: 'Second', sendAt: Date.now() + 36e5 }); await call('scheduled', 'POST', { action: 'cancel', id: r2.id }); sq.prepare('UPDATE mail_queue SET send_at = ? WHERE id = ?').run(Date.now() - 1, r2.id); await call('scheduled', 'POST', { action: 'run' }); if (sent.length !== 1) bad.push('cancelled was sent');
+  let [, r3] = await call('send', 'POST', { ...msg, subject: 'Third', sendAt: Date.now() + 36e5 }); sq.prepare('UPDATE mail_queue SET send_at = ? WHERE id = ?').run(Date.now() - 1, r3.id);
+  const cr = await G.onRequest({ request: new Request('https://m/api/gmail/cron', { headers: { 'x-cron-key': 'secret' } }), env, params: { path: ['cron'] } }); const cj = await cr.json(); console.log('cron:', cr.status, JSON.stringify(cj)); if (cj.sent !== 1 || sent.length !== 2) bad.push('cron');
+  const cr2 = await G.onRequest({ request: new Request('https://m/api/gmail/cron', { headers: { 'x-cron-key': 'wrong' } }), env, params: { path: ['cron'] } }); if (cr2.status !== 403) bad.push('cron key');
+  let [s4] = await call('send', 'POST', { ...msg, subject: 'Now' }); if (s4 !== 200 || sent.length !== 3) bad.push('send now path');
+  // two tabs dispatching an overdue email at the same moment: sent once
+  let [, r5] = await call('send', 'POST', { ...msg, subject: 'Overdue', sendAt: Date.now() + 36e5 }); sq.prepare('UPDATE mail_queue SET send_at = ? WHERE id = ?').run(Date.now() - 40 * 6e4, r5.id); const n0 = sent.length;
+  await Promise.all([G.dispatch(env), G.dispatch(env), G.dispatch(env)]); console.log('overdue, 3 tabs at once → gmail sends:', sent.length - n0); if (sent.length - n0 !== 1) bad.push('double send');
+  // the person lost access to the mailbox while it waited → failed, not sent
+  let [, r6] = await call('send', 'POST', { ...msg, subject: 'Revoked', sendAt: Date.now() + 36e5 }); sq.prepare('UPDATE mail_queue SET send_at = ?, login = ? WHERE id = ?').run(Date.now() - 1, 'someone@else.com', r6.id); const n6 = sent.length; await G.dispatch(env); const row6 = sq.prepare('SELECT status, err FROM mail_queue WHERE id = ?').get(r6.id); console.log('revoked access →', row6.status, '|', row6.err); if (sent.length !== n6 || row6.status !== 'failed') bad.push('revoked');
+  console.log(`errors ${bad.length}`, bad.join(', ')); process.exit(0); })();

@@ -1,0 +1,17 @@
+// fixes from the review: real country domains (.om / .cm) aren't “wrong email”, “Email Address” is an email column, quotes inside a CSV cell,
+// repeated column names, signatures shown without scripts, the list filter resets, opening an email while the inbox is open keeps it open
+const { run } = require('./harness');
+(async () => { const h = run({ site: true, params: { view: 'home' } }); await h.settle(); await new Promise((r) => setTimeout(r, 2500)); await h.settle(); const W = h.w, D = h.d, C = W.__cm, X = W.__cm3; const bad = [];
+  const fl = (e) => X.cpFlag({ email: e }); const T = { 'info@empresa.com.om': '', 'ventas@x.cm': '', 'ana@gmial.com': 'wrong', 'bo@x.con': 'wrong', 'x@y': 'wrong', 'a@b.co': '' };
+  Object.entries(T).forEach(([e, w]) => { const g = fl(e); console.log('flag', e, '→', g || 'ok'); (g || '') !== w && bad.push(`flag ${e}`); });
+  const G = X.impGuess([ 'Company', 'Email Address', 'Email domain', 'Website', 'Address' ]); console.log('guess:', JSON.stringify(G)); (G['Email Address'] !== 'email' || G['Email domain'] === 'website' || G.Website !== 'website' || G.Address !== 'address') && bad.push('guess email/address/website');
+  const P = X.impCsv('Name,Notes,Name\nAcme,"5"" screw, steel",Acme 2\nBolt,size 5" nail,x\n'); console.log('csv:', JSON.stringify(P.cols), JSON.stringify(P.rows)); (P.cols[2] !== 'Name (2)' || P.rows[0].Notes !== '5" screw, steel' || P.rows[1].Notes !== 'size 5" nail' || P.rows[1]['Name (2)'] !== 'x') && bad.push('csv quotes / duplicate headers');
+  const f = X.cpSafeHtml('Kavi<br><img src=x onerror=alert(1)><a href="javascript:alert(2)">x</a><script>alert(3)</script><svg onload=alert(4)></svg><a href="https://kavikaplan.com">site</a>'); const div = D.createElement('div'); div.append(f); console.log('signature:', div.innerHTML);
+  (/onerror|javascript:|script|svg|onload/i.test(div.innerHTML) || !/href="https:\/\/kavikaplan\.com"/.test(div.innerHTML)) && bad.push('signature sanitized');
+  const LP = X.LPx(); LP.list = 'old list'; LP.tag = 'x'; X.openLeadsPage('CL'); await h.settle(); console.log('list filter after opening another page:', JSON.stringify([ LP.list, LP.tag ])); (LP.list || LP.tag) && bad.push('list filter reset'); X.LPx() && W.document.getElementById('cm-lp') && W.dash.setParams({ lp: null });
+  // the inbox already open: opening an email changes the view (doesn't close the inbox)
+  const R = W.Response || globalThis.Response; const J = (o) => new R(JSON.stringify(o), { status: 200, headers: { 'content-type': 'application/json' } }); const of = W.fetch;
+  W.fetch = async (u, o = {}) => { u = String(u); if (u.startsWith('/api/gmail/accounts')) return J({ accounts: [ { mailbox: 'hi@kavikaplan.com', aliases: [] } ] }); if (u.startsWith('/api/gmail/')) return J({ threads: [], labels: [], rows: [], camps: [], boxes: [], messages: [] }); return of(u, o); };
+  await X.openInbox(D.body); await h.settle(); await X.openInbox(D.body, { id: 'th1', box: 'hi@kavikaplan.com', subject: 'Re: x' }); await h.settle(); const sh = D.getElementById('cm-sheet'); console.log('inbox still open:', !sh.hidden, '| thread view:', !!sh.querySelector('.cm-ibsubj')); (sh.hidden || !sh.querySelector('.cm-ibsubj')) && bad.push('open email keeps inbox open');
+  W.fetch = of; C.closeSheet();
+  console.log(`errors ${h.errors.length + bad.length}`, bad.join(', '), h.errors.slice(0, 2).join('\n')); process.exit(0); })();

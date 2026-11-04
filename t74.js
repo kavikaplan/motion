@@ -1,0 +1,7 @@
+const { run } = require('./harness');
+const claude = () => ({ use: async (n) => n === 'mcp' ? { callTool: async (s, t, i) => ({ content: [{ type: 'text', text: JSON.stringify(t === 'list_record_timeline' ? { events: [{ id: 'E1', type: 'chat', timeISO: new Date().toISOString(), chat: { name: '56911112222' } }] } : t === 'get_record_timeline_item' ? { messages: [{ incoming: true, body: '¿Nos envían precios?', time: Date.now() }] } : { records: [] }) }] }) } : n === 'sample' ? async () => ({ text: 'Hola Ariel, te envío los precios hoy. Kavi' }) : null });
+(async () => { const h = run({ params: { view: 'home', ours: 'next' }, claude }); await h.settle(); await new Promise((r) => setTimeout(r, 2700));
+  h.w.dash.setParams({ view: 'country', iso: 'CL', tags: ['chile'], ctab: 'companies', csub: 'partners' }); h.w.dash.data('contact_history'); await h.settle(); await h.settle();
+  const wa = h.d.querySelector('.cm-partner a[href*="wa.me/"]'); wa.click(); await new Promise((r) => setTimeout(r, 900)); await h.settle(); await new Promise((r) => setTimeout(r, 300));
+  const s3 = h.d.getElementById('cm-sheet'); console.log('WA sheet:', h.d.getElementById('cm-sheet-title').textContent, '| text:', (s3.querySelector('.cm-phdraft') || {}).value, '| link:', String((s3.querySelector('.cm-wago') || {}).href).slice(0, 80));
+  console.log('errors', h.errors.length, h.errors.join('').slice(0, 300)); process.exit(0); })();
