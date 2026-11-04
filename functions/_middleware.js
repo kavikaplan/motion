@@ -5,7 +5,7 @@
 import { whoIs, allowedSet } from './_lib/access.js';
 import { callTool } from './api/nethunt.js';
 const ID = /^[0-9a-f]{24}$/;
-export async function onRequest({ request, env, next }) {
+export async function onRequest({ request, env, next, waitUntil }) {
   const url = new URL(request.url);
   if (!url.pathname.startsWith('/data/') || !url.pathname.endsWith('.json')) return next();
   const login = (request.headers.get('cf-access-authenticated-user-email') || '').toLowerCase();
@@ -17,7 +17,7 @@ export async function onRequest({ request, env, next }) {
   let rows; try { rows = await res.clone().json(); } catch { return res; }
   if (!Array.isArray(rows) || !rows.some((r) => r && ID.test(String(r.id || '')))) return res; // not a per-company file
   if (me.role === 'Unknown' || !me.active) return new Response('[]', { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-  const allow = await allowedSet(nh, me.name);
+  let allow; try { allow = await allowedSet(nh, me.name, env, { origin: url.origin, waitUntil }); } catch { return new Response('{"error":"assignments are loading — try again"}', { status: 503, headers: { 'content-type': 'application/json', 'cache-control': 'no-store', 'retry-after': '3' } }); }
   const out = rows.filter((r) => !r || !ID.test(String(r.id || '')) || allow.has(r.id));
-  return new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+  return new Response(JSON.stringify(out), { headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=120', vary: 'Cookie' } });
 }

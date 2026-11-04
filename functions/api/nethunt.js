@@ -12,7 +12,7 @@
  * Put Cloudflare Access in front of the whole site (this function included) so only your team can call it.
  */
 
-import { F, whoIs, allowedSet, clearAccessCache } from '../_lib/access.js';
+import { F, whoIs, allowedSet, clearAccessCache, rules, assigneeOf } from '../_lib/access.js';
 
 const READ_TOOLS = new Set(['filter_records', 'get_record', 'list_records', 'search_records', 'list_record_timeline', 'list_folder_timeline', 'get_record_timeline_item', 'get_folder', 'list_folders']);
 const WRITE_TOOLS = new Set(['create_record', 'update_record', 'add_folder_field', 'create_record_comment', 'create_record_call_log', 'delete_record']);
@@ -22,6 +22,7 @@ const FOLDERS = new Set(['6682e9b8b6386800f586c0b2', '6682e9b8b6386800f586c0b0',
 let session = null; // reused while this worker instance is warm
 let protocol = '2025-03-26'; // the MCP version NetHunt agrees to in initialize
 
+const low = (v) => String(v ?? '').trim().toLowerCase();
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 
 function headers(env, sid) {
@@ -84,7 +85,7 @@ export async function callTool(env, name, args) {
   throw new Error('NetHunt session could not be opened');
 }
 
-export async function onRequestPost({ request, env }) {
+export async function onRequestPost({ request, env, waitUntil }) {
   if (!env.NETHUNT_MCP_URL) return json({ error: 'The server has no NetHunt key yet (set NETHUNT_MCP_URL).', code: 'server_not_connected' }, 500);
   // only this website may call it (blocks other sites posting with a logged-in visitor's cookie)
   const origin = request.headers.get('origin'); const host = new URL(request.url).host;
@@ -102,7 +103,7 @@ export async function onRequestPost({ request, env }) {
   // who is asking: House sees everything; a Person only the companies assigned to them
   const login = (request.headers.get('cf-access-authenticated-user-email') || '').toLowerCase();
   const nh = (n, a) => callTool(env, n, a);
-  let me = { role: 'House' }; let allow = null;
+  let me = { role: 'House' }; let allow = null; let rs = null;
   if (login) {
     try { me = await whoIs(env, nh, login); } catch { return json({ error: 'Couldn’t check your access — try again.', code: 'server_unavailable' }, 502); }
     if (me.role === 'Unknown' || !me.active) return json({ error: 'Your login isn’t active in Medint — ask House to add you under People.', code: 'forbidden' }, 403);
@@ -110,9 +111,11 @@ export async function onRequestPost({ request, env }) {
       const deny = () => json({ error: 'Not assigned to you.', code: 'forbidden' }, 403);
       const fid = String(args.folderId || '');
       if (write && (fid === F.PEOPLE || fid === F.ASSIGN)) return json({ error: 'Only House can change people and assignments.', code: 'forbidden' }, 403);
-      allow = await allowedSet(nh, me.name);
-      const ownsCompanyOf = async (folder, id) => { const g = JSON.parse(((await callTool(env, 'get_record', { folderId: folder, recordId: id, fieldKeys: 'label' })).content || []).map((c) => c.text || '').join('') || '{}'); return [].concat((g.fields && g.fields.Company) || []).some((x) => allow.has(x && x.id ? x.id : x)); };
-      if (fid === F.COMPANIES && args.recordId && !allow.has(String(args.recordId))) return deny();
+      const opt = { origin: new URL(request.url).origin, waitUntil };
+      try { allow = await allowedSet(nh, me.name, env, opt); rs = await rules(nh, env); } catch { return json({ error: 'Couldn’t read your assigned companies from NetHunt — try again in a moment.', code: 'server_unavailable' }, 502); }
+      const canSee = async (id) => { if (allow.has(id)) return true; try { const g = JSON.parse(((await callTool(env, 'get_record', { folderId: F.COMPANIES, recordId: id, fieldKeys: 'label' })).content || []).map((c) => c.text || '').join('') || '{}'); return !!(g && g.fields && low(assigneeOf(id, g.fields, rs)) === low(me.name)); } catch { return false; } }; // a company newer than the site's list: judged by its own fields
+      const ownsCompanyOf = async (folder, id) => { const g = JSON.parse(((await callTool(env, 'get_record', { folderId: folder, recordId: id, fieldKeys: 'label' })).content || []).map((c) => c.text || '').join('') || '{}'); for (const x of [].concat((g.fields && g.fields.Company) || [])) if (await canSee(String(x && x.id ? x.id : x))) return true; return false; };
+      if (fid === F.COMPANIES && args.recordId && !(await canSee(String(args.recordId)))) return deny();
       if ((fid === F.CONTACTS || fid === F.DEALS) && args.recordId && !(await ownsCompanyOf(fid, String(args.recordId)))) return deny();
       if ((fid === F.CONTACTS || fid === F.DEALS) && tool === 'create_record' && ![].concat((args.fields && args.fields.Company) || []).some((x) => allow.has(String(x)))) return deny();
       if (fid === F.LOG && write && args.fields) args.fields = { ...args.fields, Person: me.name, 'Person email': login }; // the log always names the real person
@@ -120,8 +123,8 @@ export async function onRequestPost({ request, env }) {
   }
   try {
     const result = await callTool(env, tool, args);
-    if (allow && result && !result.isError) result.content = filterContent(result.content, String(args.folderId || ''), allow, me, login);
-    if (!allow && login && (String(args.folderId) === F.PEOPLE || String(args.folderId) === F.ASSIGN) && write) clearAccessCache();
+    if (allow && result && !result.isError) result.content = filterContent(result.content, String(args.folderId || ''), allow, me, login, rs);
+    if (!allow && login && (String(args.folderId) === F.PEOPLE || String(args.folderId) === F.ASSIGN) && write) clearAccessCache(env);
     if (allow && tool === 'create_record' && String(args.folderId) === F.COMPANIES && result && !result.isError) { // a company a Person adds is theirs
       try { const rec = JSON.parse((result.content || []).map((c) => c.text || '').join('')); if (rec && rec.id) { await callTool(env, 'create_record', { folderId: F.ASSIGN, fieldKeys: 'label', fields: { Name: `Company · ${rec.fields && rec.fields.Name || rec.id} → ${me.name}`, Person: me.name, 'Rule type': 'Company', Value: (rec.fields && rec.fields.Name) || '', Companies: [rec.id], Active: 'Active', Notes: 'Added by this person in Medint' } }); clearAccessCache(); } } catch { /* rule can be added by House */ }
     }
@@ -129,6 +132,8 @@ export async function onRequestPost({ request, env }) {
       const text = (result.content || []).map((c) => c.text || '').join(' ').slice(0, 500);
       return json({ error: text || 'NetHunt reported an error', code: 'tool_error' }, 422);
     }
+    if (tool === 'list_records' && String(args.folderId) === F.COMPANIES && result && result.content) result.content = slimChanges(result.content);
+    if (tool === 'list_folder_timeline' && String(args.folderId) === F.COMPANIES && isHistoryQuery(args) && result && result.content) result.content = slimHistory(result.content);
     return json({ content: (result && result.content) || [] });
   } catch (e) {
     return json({ error: e.message || 'NetHunt didn’t answer', code: e.status === 401 ? 'needs_reauth' : 'server_unavailable' }, e.status === 401 ? 401 : 502);
@@ -136,13 +141,13 @@ export async function onRequestPost({ request, env }) {
 }
 
 // keep only what a Person may see in a NetHunt answer
-function filterContent(content, folder, allow, me, login) {
+export function filterContent(content, folder, allow, me, login, rs) { // (exported for the tests)
   return (content || []).map((c) => {
     if (!c || c.type !== 'text') return c;
     let d; try { d = JSON.parse(c.text); } catch { return c; }
     const okRec = (r) => {
       if (!r || typeof r !== 'object') return true;
-      if (folder === F.COMPANIES) return allow.has(r.id);
+      if (folder === F.COMPANIES) { const f = r.fields; if (rs && f && typeof f === 'object' && !Array.isArray(f) && ('Country' in f || 'Tags' in f || 'Status' in f)) return low(assigneeOf(r.id, f, rs)) === low(me.name); return allow.has(r.id); } // a full company record is judged by its own fields (new or moved companies too)
       if (folder === F.CONTACTS || folder === F.DEALS) return [].concat((r.fields && r.fields.Company) || []).some((x) => allow.has(x && x.id ? x.id : x));
       if (folder === F.LOG) return String((r.fields && r.fields['Person email']) || '').toLowerCase() === login || (r.fields && r.fields.Person) === me.name;
       if (folder === '6ad6cf34adab0048f0a964a5') return (r.fields && r.fields.Person) === me.name;
@@ -152,7 +157,7 @@ function filterContent(content, folder, allow, me, login) {
     if (Array.isArray(d)) d = d.filter(okRec);
     else if (d && Array.isArray(d.records)) d = { ...d, records: d.records.filter(okRec) };
     else if (d && Array.isArray(d.events)) d = { ...d, events: d.events.filter(okEv) };
-    else if (d && d.id && d.fields && !okRec(d)) d = { error: 'Not assigned to you.' };
+    else if (d && d.id && d.fields && !Array.isArray(d.fields) && !okRec(d)) d = { error: 'Not assigned to you.' }; // (a folder's field list — the status / category choices — is not a record: everyone may read it)
     return { ...c, text: JSON.stringify(d) };
   });
 }
@@ -166,4 +171,36 @@ export async function onRequestGet({ env }) {
     let n = null; try { n = JSON.parse(t).length; } catch { /* fine */ }
     return json({ ok: !r.isError, folders: n, writes: String(env.ALLOW_WRITES).toLowerCase() === 'true' });
   } catch (e) { return json({ ok: false, error: e.message }, 502); }
+}
+
+// “Companies changed since the snapshot” (list_records on Companies) feeds only the pipeline_changes loader in index.html,
+// which reads these fields — the rest of each record (notes, long texts, links) is dropped so the answer is a fraction of the size.
+const CHANGE_FIELDS = ['Name', 'Country', 'City', 'Category', 'Status', 'NEXT Status', 'Motion Status', 'Last Interaction Date', 'Brand', 'Next follow-up', 'Next step', 'Source'];
+function slimChanges(content) {
+  return (content || []).map((c) => {
+    if (!c || typeof c.text !== 'string') return c;
+    let o; try { o = JSON.parse(c.text); } catch { return c; }
+    if (!o || !Array.isArray(o.records)) return c;
+    o.records = o.records.map((r) => { const f = (r && r.fields) || {}; const keep = {}; CHANGE_FIELDS.forEach((k) => { if (k in f) keep[k] = f[k]; }); return { ...r, fields: keep }; });
+    return { ...c, text: JSON.stringify(o) };
+  });
+}
+
+// “Real conversations, last 90 days” (list_folder_timeline on Companies, types call/email/chat/calendar, no comments) feeds only the
+// contact_history loader in index.html. It reads who, when, which company, the chat status/number and a 140-character preview —
+// email bodies and other event details are dropped. Other timeline reads (comments, activity, imports) are left untouched.
+const HIST_TYPES = 'calendar,call,chat,email';
+const isHistoryQuery = (a) => Array.isArray(a.types) && [...a.types].map(String).sort().join(',') === HIST_TYPES;
+function slimHistory(content) {
+  return (content || []).map((c) => {
+    if (!c || typeof c.text !== 'string') return c;
+    let o; try { o = JSON.parse(c.text); } catch { return c; }
+    if (!o || !Array.isArray(o.events)) return c;
+    o.events = o.events.map((e) => { if (!e) return e; const x = { id: e.id, recordId: e.recordId, time: e.time, timeISO: e.timeISO, type: e.type };
+      if (e.creator) x.creator = { name: e.creator.name, email: e.creator.email };
+      if (e.chat) x.chat = { status: e.chat.status, name: e.chat.name, ...(e.chat.lastMessage ? { lastMessage: { body: String(e.chat.lastMessage.body || '').slice(0, 140) } } : {}) };
+      if (e.subject != null) x.subject = String(e.subject).slice(0, 140);
+      return x; });
+    return { ...c, text: JSON.stringify(o) };
+  });
 }

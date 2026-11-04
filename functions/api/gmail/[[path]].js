@@ -2,11 +2,17 @@
  * /api/gmail/connect · callback · accounts · send · threads · thread · find · disconnect
  * Sends and reads email through the connected Google Workspace mailboxes (see _lib/gmail.js).
  */
+import { callTool } from '../nethunt.js';
+import { F } from '../../_lib/access.js';
+import { onRequestPost as logPost } from '../medint.js';
+import { campRoute, campRun } from '../../_lib/camp.js';
 import { json, loginOf, SCOPES, db, seal, sign, accessToken, gapi, sendAsOf, allowedBoxes, mime, toB64 } from '../../_lib/gmail.js';
 const ORIGIN = (request) => new URL(request.url).origin;
+const CONTACTS = new Map();
 export async function onRequest(ctx) {
   const { request, env, params } = ctx; const path = [].concat(params.path || [])[0] || ''; const login = loginOf(request); const url = new URL(request.url);
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.TOKEN_KEY) return json({ error: 'Gmail isn’t set up: add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and TOKEN_KEY in Cloudflare.', code: 'not_configured' }, 501);
+  if (path === 'cron') { if (!env.CRON_KEY || request.headers.get('x-cron-key') !== env.CRON_KEY) return json({ error: 'forbidden' }, 403); return json(await dispatch(env)); } // optional: a scheduler (Cloudflare Worker cron) calls this every few minutes
   if (!login) return json({ error: 'not signed in' }, 401);
   try {
     if (path === 'connect') { const st = `${login}|${Date.now()}`; const q = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: `${ORIGIN(request)}/api/gmail/callback`, response_type: 'code', scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true', state: `${btoa(st)}.${await sign(env, st)}`, ...(url.searchParams.get('hint') ? { login_hint: url.searchParams.get('hint') } : {}) }); return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, 302); }
@@ -28,18 +34,26 @@ export async function onRequest(ctx) {
     const pick = (b) => { const m = String(b || '').toLowerCase(); if (!boxes.includes(m)) throw Object.assign(new Error(`You can’t use ${m || 'that mailbox'} — ask House to add it to your Medint People record`), { status: 403 }); return m; };
     if (path === 'disconnect' && request.method === 'POST') { if (me.role !== 'House') return json({ error: 'Only House can disconnect a mailbox' }, 403); const b = pick((await request.json()).mailbox); await (await db(env)).prepare('DELETE FROM gmail_accounts WHERE mailbox = ?').bind(b).run(); return json({ ok: true }); }
     if (path === 'send' && request.method === 'POST') {
-      const q = await request.json(); const box = pick(q.mailbox); const aliases = await sendAsOf(env, box); const al = aliases.find((a) => a.email === String(q.from || '').toLowerCase()) || aliases.find((a) => a.isDefault) || { email: box, name: '' };
-      if (!String(q.to || '').includes('@')) return json({ error: 'Add who it goes to' }, 400);
-      const files = []; let total = 0;
-      for (const k of [].concat(q.files || [])) { if (!env.FILES) break; const o = await env.FILES.get(k); if (!o) continue; const buf = await o.arrayBuffer(); total += buf.byteLength; files.push({ name: (o.customMetadata && o.customMetadata.name) || k.split('/').pop(), type: (o.httpMetadata && o.httpMetadata.contentType) || 'application/octet-stream', b64: toB64(buf) }); }
-      for (const u of [].concat(q.uploads || [])) { total += Math.round(String(u.data || '').length * 0.75); files.push({ name: u.name, type: u.type, b64: String(u.data || '') }); }
-      if (total > 24 * 1024 * 1024) return json({ error: 'Attachments are over 24 MB — Gmail won’t send that much' }, 413);
-      const raw = mime({ from: al.email, fromName: al.name, to: q.to, cc: q.cc, bcc: q.bcc, subject: q.subject, text: q.text, html: q.html, inReplyTo: q.inReplyTo, references: q.references, files });
-      let sent;
-      if (raw.length < 4.5e6) sent = await gapi(env, box, 'messages/send', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ raw: btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), ...(q.threadId ? { threadId: q.threadId } : {}) }) });
-      else { const r = await fetch('https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', { method: 'POST', headers: { authorization: `Bearer ${await accessToken(env, box)}`, 'content-type': 'message/rfc822' }, body: raw }); sent = await r.json().catch(() => ({})); if (!r.ok) throw new Error((sent.error && sent.error.message) || `Gmail error ${r.status}`); }
-      return json({ ok: true, id: sent.id, threadId: sent.threadId, from: al.email });
+      const q = await request.json(); const box = pick(q.mailbox); if (!String(q.to || '').includes('@')) return json({ error: 'Add who it goes to' }, 400);
+      const at = Number(q.sendAt) || 0;
+      if (at > Date.now() + 60e3) { // 🕒 schedule: kept in Medint's database and sent when due (see dispatch below)
+        if (at > Date.now() + 120 * 864e5) return json({ error: 'Schedule at most 4 months ahead' }, 400);
+        const payload = JSON.stringify({ ...q, mailbox: box, sendAt: undefined }); if (payload.length > 1.5e6) return json({ error: 'Attachments from your computer are too big to schedule — use files from the library, or send now' }, 413);
+        const id = crypto.randomUUID(); await (await qdb(env)).prepare('INSERT INTO mail_queue (id, mailbox, login, payload, send_at, status, err, sent_id, created, subject, rcpt, iso) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?)').bind(id, box, login, payload, at, 'pending', Date.now(), String(q.subject || '').slice(0, 200), String(q.to || '').slice(0, 300), String(q.iso || '').slice(0, 2)).run();
+        return json({ ok: true, scheduled: true, id, sendAt: at });
+      }
+      return json(await sendNow(env, box, q));
     }
+    if (path === 'scheduled') { const d1 = await qdb(env);
+      if (request.method === 'POST') { const q = await request.json(); if (q.action === 'run') return json(await dispatch(env));
+        const row = await d1.prepare('SELECT * FROM mail_queue WHERE id = ?').bind(String(q.id || '')).first(); if (!row) return json({ error: 'not found' }, 404); if (row.login !== login && me.role !== 'House') return json({ error: 'Not yours' }, 403); if (row.status !== 'pending') return json({ error: `Already ${row.status}` }, 409);
+        if (q.action === 'cancel') { await d1.prepare("UPDATE mail_queue SET status = 'cancelled' WHERE id = ? AND status = 'pending'").bind(row.id).run(); return json({ ok: true }); }
+        if (q.action === 'move') { const at = Number(q.sendAt) || 0; if (at < Date.now() - 60e3) return json({ error: 'Pick a time in the future' }, 400); await d1.prepare("UPDATE mail_queue SET send_at = ? WHERE id = ? AND status = 'pending'").bind(at, row.id).run(); return json({ ok: true }); }
+        if (q.action === 'now') { await d1.prepare("UPDATE mail_queue SET send_at = ? WHERE id = ? AND status = 'pending'").bind(Date.now() - 1, row.id).run(); const r = await dispatch(env, row.id); return json(r.sent ? r : { ...r, error: r.errors[0] || 'It was already being sent — refresh in a minute' }, r.sent ? 200 : 409); }
+        return json({ error: 'unknown action' }, 400); }
+      const all = me.role === 'House' && url.searchParams.get('all') === '1'; const rs = await d1.prepare(`SELECT id, mailbox, login, send_at, status, err, subject, rcpt, created, iso FROM mail_queue WHERE ${all ? '1 = 1' : 'login = ?'} AND (status IN ('pending', 'sending', 'failed') OR send_at > ?) ORDER BY send_at LIMIT 100`).bind(...(all ? [] : [login]), Date.now() - 7 * 864e5).all();
+      return json({ rows: rs.results || [] }); }
+    if (path === 'camp') return await campRoute([].concat(params.path || [])[1] || '', request, env, { login, me, boxes }); // 📣 campaigns (functions/_lib/camp.js)
     const H = (m, n) => (((m.payload || {}).headers || []).find((h) => h.name.toLowerCase() === n.toLowerCase()) || {}).value || '';
     if (path === 'labels') { const box = pick(url.searchParams.get('mailbox') || boxes[0]); const ids = url.searchParams.get('only') ? [url.searchParams.get('only')] : ['INBOX', 'STARRED', 'IMPORTANT', 'SENT', 'DRAFT', 'SPAM', 'TRASH'];
       const out = await Promise.all(ids.map(async (id) => { try { const l = await gapi(env, box, `labels/${id}`); return { id, unread: l.threadsUnread || 0, total: l.threadsTotal || 0 }; } catch { return { id, unread: 0, total: 0 }; } })); return json({ mailbox: box, labels: out }); }
@@ -49,6 +63,11 @@ export async function onRequest(ctx) {
         const lastIn = [...ms].reverse().find((m) => !(m.labelIds || []).includes('SENT')) || last;
         return { id: t.id, subject: H(first, 'Subject'), from: H(lastIn, 'From'), to: H(last, 'To'), date: Number(last.internalDate) || 0, snippet: last.snippet || t.snippet || '', count: ms.length, unread: labs.includes('UNREAD'), starred: labs.includes('STARRED'), important: labs.includes('IMPORTANT'), inbox: labs.includes('INBOX'), sent: (last.labelIds || []).includes('SENT'), files: ms.some((m) => (m.payload && /multipart\/mixed/i.test(m.payload.mimeType || ''))), people: [...new Set(ms.flatMap((m) => [H(m, 'From'), H(m, 'To'), H(m, 'Cc')]).join(',').match(/[\w.+-]+@[\w-]+\.[\w.-]+/g) || [])].map((e) => e.toLowerCase()) }; } catch { return null; } }));
       return json({ mailbox: box, threads: rows.filter(Boolean), next: d.nextPageToken || null, estimate: d.resultSizeEstimate || 0 }); }
+    if (path === 'contacts') { const box = pick(url.searchParams.get('mailbox') || boxes[0]); const hit = CONTACTS.get(box); if (hit && Date.now() - hit.at < 6 * 3600e3) return json({ mailbox: box, contacts: hit.list });
+      // who you email most: the To/Cc of your sent mail (last 4 months)
+      const d = await gapi(env, box, `messages?maxResults=150&q=${encodeURIComponent('in:sent newer_than:120d')}`); const ids = (d.messages || []).map((m) => m.id); const own = new Set((await sendAsOf(env, box).catch(() => [])).map((a) => a.email)); own.add(box); const cnt = new Map();
+      for (let i = 0; i < ids.length; i += 25) { await Promise.all(ids.slice(i, i + 25).map(async (id) => { try { const m = await gapi(env, box, `messages/${id}?format=metadata&metadataHeaders=To&metadataHeaders=Cc`); const at = Number(m.internalDate) || 0; ['To', 'Cc'].forEach((h) => String(H(m, h)).split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).forEach((part) => { const em = (part.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [])[0]; if (!em) return; const e = em.toLowerCase(); if (own.has(e)) return; const nm = part.replace(/<.*>/, '').replace(/"/g, '').trim(); const c = cnt.get(e) || { email: e, name: '', n: 0, last: 0 }; c.n++; c.last = Math.max(c.last, at); if (nm && nm !== em && !c.name) c.name = nm; cnt.set(e, c); })); } catch { /* skip */ } })); }
+      const list = [...cnt.values()].sort((a, b) => b.n - a.n || b.last - a.last).slice(0, 120); CONTACTS.set(box, { at: Date.now(), list }); return json({ mailbox: box, contacts: list }); }
     if (path === 'modify' && request.method === 'POST') { const q = await request.json(); const box = pick(q.mailbox); const ids = [].concat(q.ids || []).slice(0, 50);
       await Promise.all(ids.map((id) => q.action === 'trash' ? gapi(env, box, `threads/${id}/trash`, { method: 'POST' }) : q.action === 'untrash' ? gapi(env, box, `threads/${id}/untrash`, { method: 'POST' }) : gapi(env, box, `threads/${id}/modify`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ addLabelIds: q.add || [], removeLabelIds: q.remove || [] }) })));
       return json({ ok: true, n: ids.length }); }
@@ -72,3 +91,40 @@ export async function onRequest(ctx) {
     return json({ error: 'unknown action' }, 404);
   } catch (e) { return json({ error: String(e.message || e) }, e.status || 500); }
 }
+
+// ---- sending (now, or later from the queue) ----
+export async function sendNow(env, box, q) {
+  const aliases = await sendAsOf(env, box); const al = aliases.find((a) => a.email === String(q.from || '').toLowerCase()) || aliases.find((a) => a.isDefault) || { email: box, name: '' };
+  const files = []; let total = 0;
+  for (const k of [].concat(q.files || [])) { if (!env.FILES) break; const o = await env.FILES.get(k); if (!o) continue; const buf = await o.arrayBuffer(); total += buf.byteLength; files.push({ name: (o.customMetadata && o.customMetadata.name) || k.split('/').pop(), type: (o.httpMetadata && o.httpMetadata.contentType) || 'application/octet-stream', b64: toB64(buf) }); }
+  { const inl = [].concat(q.inline || []); for (let i = 0; i < inl.length; i++) { const x = inl[i]; const k = typeof x === 'string' ? x : x && x.key; const o = env.FILES && k ? await env.FILES.get(k) : null; if (!o) continue; const buf = await o.arrayBuffer(); total += buf.byteLength; files.push({ name: (o.customMetadata && o.customMetadata.name) || k.split('/').pop(), type: (o.httpMetadata && o.httpMetadata.contentType) || 'image/png', b64: toB64(buf), cid: (x && x.cid) || `img${i}@medint` }); } } // 🖼 images shown inside the email (cid:)
+  for (const u of [].concat(q.uploads || [])) { total += Math.round(String(u.data || '').length * 0.75); files.push({ name: u.name, type: u.type, b64: String(u.data || '') }); }
+  if (total > 24 * 1024 * 1024) throw Object.assign(new Error('Attachments are over 24 MB — Gmail won’t send that much'), { status: 413 });
+  const raw = mime({ from: al.email, fromName: al.name, to: q.to, cc: q.cc, bcc: q.bcc, subject: q.subject, text: q.text, html: q.html, inReplyTo: q.inReplyTo, references: q.references, files });
+  let sent;
+  if (raw.length < 4.5e6) sent = await gapi(env, box, 'messages/send', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ raw: btoa(raw).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''), ...(q.threadId ? { threadId: q.threadId } : {}) }) });
+  else { const r = await fetch('https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media', { method: 'POST', headers: { authorization: `Bearer ${await accessToken(env, box)}`, 'content-type': 'message/rfc822' }, body: raw }); sent = await r.json().catch(() => ({})); if (!r.ok) throw new Error((sent.error && sent.error.message) || `Gmail error ${r.status}`); }
+  return { ok: true, id: sent.id, threadId: sent.threadId, from: al.email };
+}
+let qMade = false;
+async function qdb(env) { const d1 = await db(env); if (!qMade) { await d1.prepare('CREATE TABLE IF NOT EXISTS mail_queue (id TEXT PRIMARY KEY, mailbox TEXT, login TEXT, payload TEXT, send_at INTEGER, status TEXT, err TEXT, sent_id TEXT, created INTEGER, subject TEXT, rcpt TEXT, claimed_at INTEGER, iso TEXT)').run();
+  for (const col of ['claimed_at INTEGER', 'iso TEXT']) { try { await d1.prepare(`ALTER TABLE mail_queue ADD COLUMN ${col}`).run(); } catch { /* already there */ } }
+  await d1.prepare('CREATE INDEX IF NOT EXISTS mail_queue_due ON mail_queue (status, send_at)').run(); qMade = true; } return d1; }
+// send every email that is due. Each row is claimed with one atomic UPDATE (status pending → sending, claimed_at = now), so two open
+// Medint tabs or the cron never send it twice; a send that crashed half-way (claimed 10+ minutes ago, still “sending”) is retried.
+export async function dispatch(env, onlyId) { const d1 = await qdb(env); const now = Date.now(); const out = { sent: 0, failed: 0, errors: [] };
+  await d1.prepare("UPDATE mail_queue SET status = 'pending', claimed_at = NULL WHERE status = 'sending' AND claimed_at IS NOT NULL AND claimed_at < ?").bind(now - 6e5).run();
+  const due = onlyId ? [{ id: onlyId }] : ((await d1.prepare("SELECT id FROM mail_queue WHERE status = 'pending' AND send_at <= ? ORDER BY send_at LIMIT 10").bind(now).all()).results || []);
+  for (const { id } of due) { const claim = await d1.prepare("UPDATE mail_queue SET status = 'sending', claimed_at = ? WHERE id = ? AND status = 'pending' AND send_at <= ?").bind(Date.now(), id, Date.now()).run(); if (!claim.meta || !claim.meta.changes) continue;
+    const row = await d1.prepare('SELECT * FROM mail_queue WHERE id = ?').bind(id).first();
+    try { const { boxes } = await allowedBoxes(env, row.login, { strict: !0 }); if (!boxes.includes(row.mailbox)) throw new Error(`${row.login} may no longer send from ${row.mailbox}`); // access can change while an email waits
+      const pl = JSON.parse(row.payload); const r = await sendNow(env, row.mailbox, pl); await d1.prepare("UPDATE mail_queue SET status = 'sent', sent_id = ?, payload = '' WHERE id = ?").bind(r.id || '', id).run(); out.sent++; await logSent(env, row.login, pl.log).catch(() => {}); }
+    catch (e) { const m = String(e.message || e).slice(0, 300); if (e.transient || /\b429\b|rate ?limit|quota|userRateLimitExceeded/i.test(m)) { await d1.prepare("UPDATE mail_queue SET status = 'pending', claimed_at = NULL, err = ?, send_at = ? WHERE id = ?").bind(m, Date.now() + 15 * 6e4, id).run(); out.errors.push(m); continue; } // try again in 15 minutes
+      await d1.prepare("UPDATE mail_queue SET status = 'failed', err = ? WHERE id = ?").bind(m, id).run(); out.failed++; out.errors.push(m); } }
+  if (!onlyId) { try { out.camp = await campRun(env, { sendNow, logSent }); } catch (e) { out.camp = { sent: 0, errors: [String(e.message || e)] }; } } // 📣 campaign emails that are due
+  return out; }
+
+// a scheduled email goes into the Medint Log (NetHunt + Medint's own copy) when it is actually sent, not when it was scheduled
+async function logSent(env, login, fields) { if (!fields || !fields.Action) return; const now = new Date(); const f = { ...fields, Epoch: now.getTime(), Time: now.toISOString(), Day: Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) };
+  if (env.NETHUNT_MCP_URL && F.LOG) await callTool(env, 'create_record', { folderId: F.LOG, fieldKeys: 'label', fields: f }).catch(() => {});
+  await logPost({ request: new Request('https://medint.local/api/medint', { method: 'POST', headers: { 'content-type': 'application/json', 'cf-access-authenticated-user-email': login }, body: JSON.stringify({ ...f, Company: [].concat(f.Company || [])[0] || '' }) }), env }).catch(() => {}); }

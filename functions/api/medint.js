@@ -7,7 +7,7 @@
  *   GET  /api/medint?summary=1&from=&to=&person=&action=  → House: counts per person × action + the latest 300 lines
  *   GET  /api/medint?csv=1&from=&to=  → House: download as CSV
  */
-import { whoIs, F } from '../_lib/access.js';
+import { whoIs, F, peopleNames } from '../_lib/access.js';
 import { callTool } from './nethunt.js';
 const json = (b, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 const HOUSE = (env) => String(env.MEDINT_HOUSE || 'hi@kavikaplan.com').toLowerCase().split(',').map((x) => x.trim());
@@ -21,6 +21,8 @@ async function ready(db) {
     db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS ev_once ON events (epoch, person, action, company_id)'),
   ]);
   try { await db.prepare('ALTER TABLE events ADD COLUMN nh_id TEXT').run(); } catch { /* already there */ }
+  // lines written by mistake when a country's record was only READ (Oct 2026: “Registration” with nothing in it): hidden, not deleted
+  try { await db.prepare("UPDATE events SET voided = 1 WHERE voided = 0 AND action = 'Registration' AND IFNULL(outcome, '') = '' AND IFNULL(company_id, '') = ''").run(); } catch { /* fine */ }
   readyDone = true;
 }
 const row = (b, person, login) => [Number(b.Epoch) || Date.now(), String(b.Time || ''), person, String(b['Person email'] || ''), login, String(b.Action || ''), String(b.Outcome || '').slice(0, 500), String(b.Text || '').slice(0, 20000), String(b.Company || ''), String(b['Company name'] || ''), String(b.Country || ''), String(b.Identity || ''), String(b.Source || 'Website'), b.Voided ? 1 : 0, b.nh_id || null];
@@ -62,11 +64,19 @@ export async function onRequestGet({ request, env }) {
   const country = u.searchParams.get('country') || ''; const source = u.searchParams.get('source') || '';
   if (u.searchParams.get('daily')) { // one person's actions per day (their own time zone offset in minutes), for the goals chart
     const tz = Number(u.searchParams.get('tz')) || 0; const who2 = u.searchParams.get('person') || ''; const all = u.searchParams.get('all') && who.role === 'House';
-    const db = env.MEDINT_DB; const w = `voided = 0 AND epoch >= ? AND epoch < ?${all ? '' : ' AND person = ?'}`; const wa = [from, to, ...(all ? [] : [who2])];
-    const [r1, r2, r3] = await db.batch([db.prepare(`SELECT person, CAST((epoch - ?) / 86400000 AS INTEGER) AS d, action, company_id, COUNT(*) AS n FROM events WHERE ${w} AND action <> 'Other' GROUP BY person, d, action, company_id`).bind(tz * 60000, ...wa),
-      db.prepare(`SELECT person, CAST((epoch - ?) / 86400000 AS INTEGER) AS d, outcome, COUNT(*) AS n FROM events WHERE ${w} AND action = 'Contact' AND outcome LIKE 'found%' GROUP BY person, d, outcome`).bind(tz * 60000, ...wa),
-      db.prepare(`SELECT person, CAST((epoch - ?) / 86400000 AS INTEGER) AS d, outcome, MAX(epoch) AS at FROM events WHERE ${w} AND action = 'Other' AND outcome LIKE 'plan:%' GROUP BY person, d`).bind(tz * 60000, ...wa)]);
-    return json({ rows: r1.results, plans: r3.results, found: r2.results });
+    // a person's own lines are found by their name OR their login email (so lines from before a rename count too)
+    const db = env.MEDINT_DB; const w = `voided = 0 AND epoch >= ? AND epoch < ?${all ? '' : ' AND (person = ? OR (email <> \'\' AND email = ?))'}`; const wa = [from, to, ...(all ? [] : [who2, who.login || '-'])];
+    const [r1, r2, r3] = await db.batch([db.prepare(`SELECT person, email, CAST((epoch - ?) / 86400000 AS INTEGER) AS d, action, company_id, MAX(company) AS company, MAX(epoch) AS at, COUNT(*) AS n FROM events WHERE ${w} AND action <> 'Other' GROUP BY person, email, d, action, company_id`).bind(tz * 60000, ...wa),
+      db.prepare(`SELECT person, email, CAST((epoch - ?) / 86400000 AS INTEGER) AS d, outcome, COUNT(*) AS n FROM events WHERE ${w} AND action = 'Contact' AND outcome LIKE 'found%' GROUP BY person, email, d, outcome`).bind(tz * 60000, ...wa),
+      db.prepare(`SELECT person, email, CAST((epoch - ?) / 86400000 AS INTEGER) AS d, outcome, MAX(epoch) AS at FROM events WHERE ${w} AND action = 'Other' AND outcome LIKE 'plan:%' GROUP BY person, email, d`).bind(tz * 60000, ...wa)]);
+    // each line under the person's name today (by their login email), then the same person/day/action/company added up
+    let names = new Map(); try { names = env.NETHUNT_MCP_URL ? await peopleNames(env, (n, a) => callTool(env, n, a)) : new Map(); } catch { /* keep the names as written */ }
+    const nm = (r) => names.get(String(r.email || '').toLowerCase()) || r.person; const own = (r) => all || nm(r) === who2 || String(r.email || '').toLowerCase() === who.login;
+    const merge = (L, key, add) => { const m = new Map(); (L || []).filter(own).forEach((r) => { const x = { ...r, person: all ? nm(r) : who2 }; delete x.email; const k = key(x); const o = m.get(k); o ? add(o, x) : m.set(k, x); }); return [...m.values()]; };
+    const rows = merge(r1.results, (x) => `${x.person}|${x.d}|${x.action}|${x.company_id}`, (o, x) => { o.n += x.n; });
+    const found = merge(r2.results, (x) => `${x.person}|${x.d}|${x.outcome}`, (o, x) => { o.n += x.n; });
+    const plans = merge(r3.results, (x) => `${x.person}|${x.d}`, (o, x) => { if (x.at > o.at) { o.outcome = x.outcome; o.at = x.at; } });
+    return json({ rows, plans, found });
   }
   if (u.searchParams.get('summary')) {
     const db = env.MEDINT_DB;

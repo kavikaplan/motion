@@ -31,20 +31,27 @@ export async function sendAsOf(env, mailbox, refresh) {
   await D.prepare('UPDATE gmail_accounts SET sendas = ?, at = ? WHERE mailbox = ?').bind(JSON.stringify(list), Date.now(), mailbox).run(); return list;
 }
 // which connected mailboxes this login may use: House → all; a Person → the mailboxes on their Medint People record
-export async function allowedBoxes(env, login) {
+export async function allowedBoxes(env, login, opt = {}) {
   const D = await db(env); const all = ((await D.prepare('SELECT mailbox FROM gmail_accounts').all()).results || []).map((r) => r.mailbox);
-  let me = { role: 'Person', mailboxes: [login] }; try { me = await whoIs(env, (n, a) => callTool(env, n, a), login); } catch { /* fall back to their own login */ }
+  let me = { role: 'Person', mailboxes: [login] }; try { me = await whoIs(env, (n, a) => callTool(env, n, a), login); } catch (e) { if (opt.strict && env.NETHUNT_MCP_URL) throw Object.assign(new Error(`couldn’t check mailbox access (${e.message || e}) — tried again next round`), { transient: !0 }); /* fall back to their own login */ }
   if (me.role === 'House') return { me, boxes: all }; const mine = new Set([login, ...(me.mailboxes || [])]); return { me, boxes: all.filter((m) => mine.has(m)) };
 }
 // RFC 2822 message with attachments (base64, 76-char lines), UTF-8 headers
 const hdr = (v) => (/^[\x20-\x7e]*$/.test(v) ? v : `=?UTF-8?B?${btoa(unescape(encodeURIComponent(v)))}?=`);
+const fname = (v) => hdr(String(v || 'file').replace(/["\\\r\n]+/g, '_')); // a file name inside quotes: no quotes, backslashes or line breaks
+// To / Cc with display names in any language: “Ana Pérez <ana@x.cl>” → encoded name, plain address
+const addrs = (v) => String(v || '').split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((x) => x.trim()).filter(Boolean).map((x) => { const m = x.match(/^"?(.*?)"?\s*<([^>]+)>$/); return m && m[1] && !/^[\x20-\x7e]*$/.test(m[1]) ? `${hdr(m[1])} <${m[2]}>` : x; }).join(', ');
 const wrap = (s) => s.replace(/.{1,76}/g, '$&\r\n');
 const u8b64 = (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
 export function mime({ from, fromName, to, cc, bcc, subject, text, html, inReplyTo, references, files }) {
   const B = `mx${crypto.randomUUID().replace(/-/g, '')}`; const A = `al${crypto.randomUUID().replace(/-/g, '')}`; const u = (s) => u8b64(enc.encode(s));
-  const head = [`From: ${fromName ? `${hdr(fromName)} <${from}>` : from}`, `To: ${to}`, cc && `Cc: ${cc}`, bcc && `Bcc: ${bcc}`, `Subject: ${hdr(subject || '')}`, 'MIME-Version: 1.0', inReplyTo && `In-Reply-To: ${inReplyTo}`, (references || inReplyTo) && `References: ${references || inReplyTo}`, `Content-Type: multipart/mixed; boundary="${B}"`].filter(Boolean).join('\r\n');
-  let body = `--${B}\r\nContent-Type: multipart/alternative; boundary="${A}"\r\n\r\n--${A}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(u(text || ''))}\r\n--${A}\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(u(html || ''))}\r\n--${A}--\r\n`;
-  (files || []).forEach((f) => { body += `--${B}\r\nContent-Type: ${f.type || 'application/octet-stream'}; name="${hdr(f.name)}"\r\nContent-Disposition: attachment; filename="${hdr(f.name)}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(f.b64)}\r\n`; });
+  const head = [`From: ${fromName ? `${hdr(fromName)} <${from}>` : from}`, `To: ${addrs(to)}`, cc && `Cc: ${addrs(cc)}`, bcc && `Bcc: ${addrs(bcc)}`, `Subject: ${hdr(subject || '')}`, 'MIME-Version: 1.0', inReplyTo && `In-Reply-To: ${inReplyTo}`, (references || inReplyTo) && `References: ${references || inReplyTo}`, `Content-Type: multipart/mixed; boundary="${B}"`].filter(Boolean).join('\r\n');
+  const inl = (files || []).filter((f) => f.cid); const att = (files || []).filter((f) => !f.cid); const R = `rl${crypto.randomUUID().replace(/-/g, '')}`;
+  const alt = `--${A}\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(u(text || ''))}\r\n--${A}\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(u(html || ''))}\r\n--${A}--\r\n`;
+  let body = inl.length // images shown inside the email: multipart/related around the text + html, each image with its Content-ID
+    ? `--${B}\r\nContent-Type: multipart/related; type="multipart/alternative"; boundary="${R}"\r\n\r\n--${R}\r\nContent-Type: multipart/alternative; boundary="${A}"\r\n\r\n${alt}${inl.map((f) => `--${R}\r\nContent-Type: ${f.type || 'image/png'}; name="${fname(f.name)}"\r\nContent-Disposition: inline; filename="${fname(f.name)}"\r\nContent-ID: <${f.cid}>\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(f.b64)}\r\n`).join('')}--${R}--\r\n`
+    : `--${B}\r\nContent-Type: multipart/alternative; boundary="${A}"\r\n\r\n${alt}`;
+  att.forEach((f) => { body += `--${B}\r\nContent-Type: ${f.type || 'application/octet-stream'}; name="${fname(f.name)}"\r\nContent-Disposition: attachment; filename="${fname(f.name)}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${wrap(f.b64)}\r\n`; });
   return `${head}\r\n\r\n${body}--${B}--\r\n`;
 }
 export const toB64 = (buf) => u8b64(new Uint8Array(buf));
