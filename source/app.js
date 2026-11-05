@@ -1413,9 +1413,16 @@ document.querySelectorAll('[data-ctab]').forEach(t => {
 
 let partnersAll = !1;
 
-const digits = t => String(t || '').replace(/\D/g, ''), waHref = t => `https://wa.me/${digits(t).replace(/^00/, '')}`, splitBar = t => String(t || '').split(' | ').map(t => t.trim()).filter(Boolean), goodPhone = t => digits(t).length >= 7, waOk = t => {
+const digits = t => String(t || '').replace(/\D/g, ''), waHref = t => {
+  const s = String(t || '').trim(), f = /^(\+|00)/.test(s) ? '' : waLocal.get(digits(s).replace(/^0+/, ''));
+  return `https://wa.me/${f || digits(s).replace(/^00/, '')}`; // a local number the checker found on WhatsApp → with its country code
+}, splitBar = t => String(t || '').split(' | ').map(t => t.trim()).filter(Boolean), goodPhone = t => digits(t).length >= 7, waOk = t => {
   const e = String(t || '').trim();
-  if (!/^(\+|00)/.test(e)) return !1;
+  if (!/^(\+|00)/.test(e)) {
+    // a local number (no +country code): WhatsApp only once the checker confirmed it with the company's country code
+    const f = waLocal.get(digits(e).replace(/^0+/, ''));
+    return !!(f && waKnown.get(f) === !0 && !noWaNums.has(f) && !noWaNums.has(digits(e)));
+  }
   const n = digits(e).replace(/^00/, '');
   if (n.length < 8 || n.length > 15 || /^0/.test(n)) return !1;
   if (noWaNums.has(n)) return !1;
@@ -1487,6 +1494,8 @@ const MOBILE_RULES = {
 let noWaNums = new Set;
 // numbers checked with the WhatsApp checker: digits → true (on WhatsApp) / false (not) — filled by app3's waCheck
 const waKnown = new Map;
+// local numbers (written without +country code) → the full number they were checked as (filled by app3's waCheck)
+const waLocal = new Map;
 
 function unmarkNoWa(num) {
   noWaNums.delete(digits(num).replace(/^00/, ''));
@@ -4614,11 +4623,14 @@ async function nhCall(t, e) {
     const write = /^(update_record|create_record|create_record_comment|create_record_call_log|delete_record)$/.test(t), key = write && e && e.recordId ? e.recordId : null;
   const run = async () => {
     let err;
-    for (let k = 0; k < 3; k++) try {
+    for (let k = 0, lim = 0; k < 3; k++) try {
+      await nhSlot();
       return nhPayload(await n.callTool('Nethunt', t, e));
     } catch (x) {
       err = x;
       const m = String(x && x.message || x);
+      // NetHunt allows 100 calls a minute for the whole workspace (everyone together): wait as long as it says, then go on — never an error for this
+      if (/rate limit|too many requests|\b429\b/i.test(m) && lim < 6) { lim++; k--; nhPause(m); continue; }
       if (!/UPSTREAM|502|503|504|429|unable to update|timeout|timed out|busy|ECONN|network|fetch/i.test(m) || x && x.code && 'tool_error' !== x.code && !/UPSTREAM/.test(m)) break;
       await new Promise(res => setTimeout(res, k ? 2e3 : 700));
     }
@@ -4638,6 +4650,25 @@ async function nhCall(t, e) {
 }
 
 const nhQueue = new Map;
+
+// NetHunt's limit: 100 calls a minute per workspace. This browser keeps to 80 a minute (some room for the team and the server),
+// and when NetHunt still says “Rate limit exceeded … Retry after Ns”, every call from this page waits that long.
+const NH_RATE = { at: [], until: 0, told: 0 };
+async function nhSlot() {
+  for (;;) {
+    const now = Date.now();
+    if (NH_RATE.until > now) { await new Promise(r => setTimeout(r, NH_RATE.until - now)); continue; }
+    NH_RATE.at = NH_RATE.at.filter(x => now - x < 6e4);
+    if (NH_RATE.at.length < 80) { NH_RATE.at.push(now); return; }
+    await new Promise(r => setTimeout(r, Math.max(50, NH_RATE.at[0] + 6e4 - now + 20)));
+  }
+}
+function nhPause(m) {
+  const s0 = Number((String(m).match(/retry after\s*(\d+)\s*s/i) || [])[1]); const rs = Date.parse((String(m).match(/resets\s+([0-9T:.\-]+Z)/i) || [])[1] || '');
+  const ms = Math.min(65e3, Math.max(1500, (s0 ? s0 * 1e3 : rs ? rs - Date.now() : 15e3) + 800)); const until = Date.now() + ms;
+  until > NH_RATE.until && (NH_RATE.until = until);
+  if (ms > 3e3 && Date.now() - NH_RATE.told > 2e4) { NH_RATE.told = Date.now(); try { say(`⏳ NetHunt’s limit (100 a minute for the whole team) — waiting ${Math.ceil(ms / 1e3)} s, then it carries on by itself`); } catch (_e) { /* no toast */ } }
+}
 
 const nhErr = t => ({
   unavailable: 'This page can’t reach NetHunt here. Use the CSV, or ask Claude in chat to do it.',
@@ -7362,6 +7393,12 @@ window.__cm = Object.defineProperties({
   },
   waKnown: {
     get: () => waKnown
+  },
+  waLocal: {
+    get: () => waLocal
+  },
+  dialCode: {
+    get: () => iso => CC[String(iso || '').toUpperCase()] || 0
   },
   markNoWa: {
     get: () => markNoWa

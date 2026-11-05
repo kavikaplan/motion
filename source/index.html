@@ -1225,6 +1225,30 @@ button.cm-tel { background: none; border: 0; padding: 0; margin: 0; font: inheri
 @keyframes cmSkel { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .cm-brskel i { animation: none; } }
 .cm-phchatld { font-weight: 400; font-size: .8rem; color: var(--color-fg-muted); text-transform: none; letter-spacing: 0; }
+
+/* Power hour: status · category · 🕑 last contact on one line · the “How did it go?” buttons on one line */
+.cm-ph .meta .cm-phlc { white-space: nowrap; }
+.cm-ph .cm-phmeta select.cm-phstat { max-width: 150px; text-overflow: ellipsis; }
+.cm-ph .outc { flex-wrap: nowrap; gap: 4px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; } .cm-ph .outc::-webkit-scrollbar { display: none; }
+.cm-ph .outc .cm-chip { flex: 0 0 auto; padding: 4px 8px; gap: 4px; font-size: .78rem; white-space: nowrap; }
+
+a.cm-waok { position: relative; } a.cm-waok::after { content: ''; position: absolute; right: -2px; bottom: -2px; width: 8px; height: 8px; border-radius: 50%; background: #25d366; border: 1.5px solid var(--color-bg, #111); pointer-events: none; }
+
+/* Power hour: “Reply draft … English Türkçe Español ✨ Smart draft” on one line — the draft-type box is small */
+.cm-ph .meta.cm-phdrafthd { flex-wrap: nowrap; gap: 6px; min-width: 0; } .cm-phdrafthd .cm-phdraftk { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-phdrafthd .cm-phlang { margin-left: 0; flex: 0 0 auto; flex-wrap: nowrap; } .cm-phdrafthd .cm-phlang .cm-chip { padding: 2px 7px; }
+.cm-phdrafthd select.cm-phtpl { flex: 0 1 auto; min-width: 0; max-width: 9.5rem; margin-left: 0; padding: 2px 6px; font-size: .72rem; border-radius: 999px; text-overflow: ellipsis; }
+@media (max-width: 640px) { .cm-ph .meta.cm-phdrafthd { flex-wrap: wrap; } }
+
+.cm-tsbox { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--color-border-line); border-radius: 12px; display: grid; gap: 4px; } .cm-tsbox .cm-mini { justify-self: start; margin-top: 4px; }
+
+/* 💬 WhatsApp / ✉ email opened → “did you send it?” bar */
+.cm-pobar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 1250; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; max-width: calc(100vw - 24px); padding: 10px 14px; border-radius: 14px; background: var(--color-bg, #1b1b1b); border: 1px solid color-mix(in srgb, #25d366 45%, var(--color-border-line)); box-shadow: 0 8px 28px rgba(0,0,0,.35); font-size: .9rem; } .cm-pobar .q { font-weight: 600; } .cm-pobar .mut { font-size: .74rem; }
+/* Days & goals: what was done (tap ▾), bulk changes as one line */
+.cm-daycow { display: grid; } .cm-daymore { padding: 0 7px; margin-left: 4px; } .cm-daydet2 { display: grid; gap: 3px; padding: 4px 8px 8px 22px; font-size: .8rem; }
+.cm-dayev { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; } .cm-dayev .t { min-width: 2.6rem; } .cm-dayev .x { font-size: .76rem; }
+.cm-daytag.upd { background: color-mix(in srgb, #8b8f96 18%, transparent); color: var(--color-fg-muted); }
+.cm-daybulk { margin: 2px 0; } .cm-daybulk > summary { cursor: pointer; padding: 6px 4px; font-size: .84rem; color: var(--color-fg-muted); }
 </style>
 
 <div class="cm">

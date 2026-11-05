@@ -231,7 +231,8 @@
     setParams(p) { const c = clean(p); for (const [k, v] of Object.entries(c)) { if (v === null) delete params[k]; else params[k] = v; } store.set('params', params); schedule(); },
     resetParams() { params = { ...DEFAULTS }; store.set('params', params); schedule(); },
     setLink(l) { if (typeof l === 'string') history.replaceState(history.state, '', '#' + l); },
-    refresh(id) { cache.delete(id); schedule(); },
+    // a NetHunt list that has loaded keeps showing while it reloads (no empty flash, the page doesn't jump to the top); files and calcs start over
+    refresh(id) { const c = cache.get(id); if (c && c.status === 'ok' && DEFS[id] && DEFS[id].source && DEFS[id].source.kind === 'query') c.key = '\u0000reload'; else cache.delete(id); schedule(); },
     refreshAll() { for (const [id, d] of Object.entries(DEFS)) if (d.source.kind === 'query') cache.delete(id); for (const id of Object.keys(calcs)) cache.delete(id); schedule(); },
     colors: ['#4C8DF6', '#E0703A', '#3FAE7A', '#D9A02B', '#D45C8C', '#8D74E8', '#4BB3C4', '#9AA0A6'],
   };

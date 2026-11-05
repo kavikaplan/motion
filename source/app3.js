@@ -7884,7 +7884,9 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     btn.textContent = '🧪 All countries';
     C.say(`🧪 ${tot} companies checked in all countries · ${web} looked up on the web`);
   }
+  const TSH = { rows: null, conf: !1, busy: !1 };
   function openHealth(anchor) {
+    TSH.rows = null;
     const C = __cm;
     const el = C.el;
     let d = null;
@@ -7917,9 +7919,21 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       rb.type = 'button';
       rb.addEventListener('click', () => {
         d = null;
+        TSH.rows = null;
         C.sheetDraw();
       });
       body.append(rb);
+      { // ⚡ the work sessions Medint wrote into the Task Timesheet (sent by themselves every 5 minutes)
+        const tb = el('div', 'cm-tsbox'); tb.append(el('b', null, '⚡ Sent to the Task Timesheet'));
+        if (TSH.rows === null && !TSH.busy) { TSH.busy = !0; fetch('/api/timesheet', { credentials: 'same-origin' }).then((r) => r.json()).then((j) => { TSH.rows = j.rows || []; TSH.conf = !!j.configured; }).catch(() => { TSH.rows = []; }).finally(() => { TSH.busy = !1; C.sheetDraw(); }); }
+        if (!TSH.rows) tb.append(el('div', 'mut', 'Loading…'));
+        else { if (!TSH.conf) tb.append(el('div', 'mut', 'Not set up yet — add TT_FUNCTION_URL and TT_FUNCTION_TOKEN in Cloudflare.'));
+          TSH.rows.filter((x) => x.task_id).slice(0, 12).forEach((x) => tb.append(el('div', 'mut', `✓ ${x.note || ''} — ${x.title}`)));
+          TSH.rows.filter((x) => !x.task_id).slice(0, 3).forEach((x) => tb.append(el('div', 'mut', `⚠ ${x.note === 'no person' ? 'someone in Medint has no matching person in the timesheet (same email or first name)' : x.note}`)));
+          TSH.conf && !TSH.rows.length && tb.append(el('div', 'mut', 'Nothing sent yet — a session goes out 30 minutes after its last action.'));
+          if (TSH.conf) { const sn = el('button', 'cm-mini', '↻ Send finished sessions now'); sn.type = 'button'; sn.addEventListener('click', async () => { sn.disabled = !0; sn.textContent = 'Sending…'; try { const r = await fetch('/api/timesheet', { method: 'POST', credentials: 'same-origin' }); const j = await r.json(); C.say(j.error ? `Timesheet: ${j.error}` : `⚡ ${(j.sent || []).length} session${(j.sent || []).length === 1 ? '' : 's'} sent${(j.skipped || []).length ? ` · ${j.skipped[0]}` : ''}`, !!j.error); } catch (e) { C.say(String(e.message || e), !0); } TSH.rows = null; C.sheetDraw(); }); tb.append(sn); } }
+        body.append(tb);
+      }
     }, {
       center: !0
     });
@@ -9623,7 +9637,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
   // ===================== 🔍 one company not in NetHunt: everything we know + Richard's steps (free checks → website → evidence → people → verified emails → add) =====================
   const LOBJ = new Map(); // key → { e, iso } for every lead row drawn
   const store = (k, kind) => { const M = (() => { try { return new Map(JSON.parse(localStorage.getItem(k) || '[]')); } catch { return new Map(); } })(); M.save = () => { window.__lsDirty && window.__lsDirty(kind); try { localStorage.setItem(k, JSON.stringify([...M].slice(-2000))); } catch (_e) { window.__cmDbg && window.__cmDbg(_e, 'store'); } }; return M; };
-  const RQ = store('medint.rich', 'rich'); const PPL = store('medint.ppl', 'ppl'); const VM = store('medint.vmail', 'vmail');
+  const RQ = store('medint.rich', 'rich'); const SKX = store('medint.skx', 'skx'); /* 📤 each file exported for the Lead research skill: its rows' Medint keys in order (the skill's Row ID is “file#line”) */ const PPL = store('medint.ppl', 'ppl'); const VM = store('medint.vmail', 'vmail');
   const RV = { qualified: ['✅', 'Qualified', 'ortho'], adjacent_supplier: ['↔', 'Adjacent supplier', 'other'], not_a_fit: ['🚫', 'Not a fit', 'not'], research_blocked: ['🔒', 'Research blocked', ''], insufficient_evidence: ['❔', 'Insufficient evidence', ''] };
   const VS = { deliverable: ['✅', 'deliverable'], risky: ['⚠️', 'risky — check'], undeliverable: ['❌', 'undeliverable'] };
   const LD = { key: '', busy: {}, batch: '' };
@@ -9634,8 +9648,36 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
   function leadEmails(e) { const d = (LF.get(e.key) || {}).d || {}; const P = PPL.get(e.key) || {}; return [...new Set([...(d.emails || []), ...((P.emails) || []), ...((P.people || []).map((p) => p.email).filter(Boolean)), e.sup && e.sup.email, e.moh && e.moh.email, e.moh && e.moh.p1[2], e.cong && e.cong.email].filter(Boolean).map((x) => String(x).trim().toLowerCase()))]; }
   async function lRun(key, what, fn) { LD.busy[`${key}|${what}`] = !0; leadDraw(); try { await fn(); } catch (er) { __cm.say(String(er.message || er), !0); } LD.busy[`${key}|${what}`] = !1; leadDraw(); lpRedraw(); }
   const lpRedraw = () => { document.getElementById('cm-lp') && lpDraw(); };
+  // 📚 what Medint already knows about a company, read before the website: public tender awards it won and devices registered to it (in this
+  // country), our imported lists, and — when it is in NetHunt (or looks like a NetHunt company) — its notes, timeline and 🧠 summary.
+  // Anything orthopaedic there makes it ortho (the server then says qualified, not “adjacent supplier”).
+  const ORTHO_RX = /trauma|fixation|spine|spinal|arthroplast|joint|\bhip\b|knee|shoulder|arthroscop|sports? med|bone graft|biologic|osteo|ortho(?!tic)|ortop|traumat|columna|rodilla|cadera|implant/i;
+  const NOT_ORTHO_RX = /orthotic|prosthetics? ?(&|and) ?orthotic|p ?& ?o\b|casting|hospital devices|cardio|dental|aesthetic/i;
+  async function leadOwn(e, iso) { const C = __cm; const L = []; let ortho = ''; const cut = (t, n) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, n);
+    for (let k = 0; k < 40 && [ 'tender_awards', 'registrations' ].some((d) => 'loading' === dash.data(d).status); k++) await new Promise((r) => setTimeout(r, 200)); // the two public lists (loaded once)
+    const F = leadFacts(e, iso);
+    F.tenders.slice(0, 8).forEach((t) => { const nic = [ t.niche, t.other_niches ].filter(Boolean).join('; '); L.push(`Public tender awards they won: ${t.awards || '?'} award(s)${t.years ? ` in ${t.years}` : ''} — field: ${nic || 'not given'}${t.value_usd ? ` — about $${Math.round(t.value_usd).toLocaleString('en-US')}` : ''}${t.top_buyers ? ` — buyers: ${cut(t.top_buyers, 140)}` : ''}`);
+      if (!ortho && (/^ORT/i.test(t.niche_code || '') || ORTHO_RX.test(nic)) && !NOT_ORTHO_RX.test(t.niche || '')) ortho = `they won public tenders for ${t.niche || 'orthopaedic items'}${t.years ? ` (${t.years})` : ''}`; });
+    F.regs.slice(0, 10).forEach((r0) => { L.push(`Device registered to them: ${r0.device || '?'} (${r0.segment || '?'})${r0.manufacturer ? ` made by ${r0.manufacturer}` : ''} — ${r0.authority || ''}`);
+      if (!ortho && ORTHO_RX.test(`${r0.segment} ${r0.device}`) && !NOT_ORTHO_RX.test(r0.segment || '')) ortho = `orthopaedic devices are registered to them (${r0.segment}: ${r0.device}${r0.manufacturer ? `, ${r0.manufacturer}` : ''})`; });
+    try { (impNotes(e.key, iso) || []).slice(0, 12).forEach((x) => L.push(cut(x, 300))); } catch (_e) { /* no list */ }
+    // the same company in NetHunt (an id it carries, or a close name / same website match)
+    let m = null; try { m = leadMatch(e, iso); } catch (_e) { /* no index */ }
+    const ids = [ ...new Set([ e.nh, e.nethunt_id, e.tender && e.tender.nethunt_id, e.sup && e.sup.nethunt_id, m && m.score >= 70 && m.id ].filter((x) => x && /^[0-9a-f]{24}$/.test(String(x)))) ].slice(0, 2);
+    for (const id of ids) {
+      try { const rec = await C.nhCall('get_record', { folderId: C.NH_FOLDER, recordId: id, fieldKeys: 'label' }); const f = (rec && rec.fields) || {};
+        L.push(`In our CRM as “${f.Name || ''}”${m && m.id === id && m.score < 100 ? ` (name match ${m.score}%)` : ''}: category ${f.Category || '—'} · status ${[ f.Status, f['NEXT Status'] ].filter(Boolean).join(' / ') || '—'}${f.Brand ? ` · brands ${cut([].concat(f.Brand).join(', '), 160)}` : ''}${f.Products ? ` · products ${cut([].concat(f.Products).join(', '), 160)}` : ''}`);
+        f.Notes && L.push(`Our CRM notes: ${cut(f.Notes, 700)}`); f.Update && L.push(`Our CRM research note: ${cut(f.Update, 300)}`);
+        if (!ortho && /^(ortho|customers?)$/i.test(String(f.Category || '').trim())) ortho = `our CRM has them as ${f.Category}`;
+        const tl = await C.nhCall('list_record_timeline', { folderId: C.NH_FOLDER, recordId: id, limit: 15, types: [ 'comment', 'email', 'call', 'chat' ] }).catch(() => null);
+        ((tl && tl.events) || []).slice(0, 12).forEach((ev) => { const t = cut([ ev.subject, ev.text, ev.summary, ev.snippet, ev.chat && ev.chat.lastMessage && ev.chat.lastMessage.body ].filter(Boolean).join(' — '), 220); t && L.push(`Our CRM ${ev.type} ${String(ev.timeISO || '').slice(0, 10)}: ${t}`); });
+        try { const S = typeof aiS === 'function' ? aiS()[id] : null; S && S.t && L.push(`Our 🧠 summary: ${cut(S.t, 500)}`); } catch (_e) { /* none */ }
+        histOf(id).slice(0, 4).forEach((h) => h.preview && L.push(`Last contact ${String(h.time).slice(0, 10)} (${h.type}, ${h.dir === 'in' ? 'from them' : 'from us'}): ${cut(h.preview, 160)}`));
+      } catch (_e) { /* not readable for this login — the rest still counts */ } }
+    return { own: L.join('\n').slice(0, 5800), ortho }; }
   async function leadResearch(e, iso) { const ctry = (__cm.countryOfIso(iso) || {}).country || ''; const hint = [e.tender && e.tender.niche, e.sup && e.sup.cat, e.moh && e.moh.sub, e.cong && e.cong.role].filter(Boolean).join(' · ');
-    const r = await fetch(`/api/research?site=${encodeURIComponent(leadSite(e))}&name=${encodeURIComponent(e.name)}&country=${encodeURIComponent(ctry)}&hint=${encodeURIComponent(hint)}`, { credentials: 'same-origin' }); const j = await r.json(); if (j.error && !j.verdict) throw new Error(j.error);
+    const O = await leadOwn(e, iso).catch(() => ({ own: '', ortho: '' }));
+    const r = await fetch('/api/research', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ site: leadSite(e), name: e.name, country: ctry, hint, own: O.own, ortho: O.ortho }) }); const j = await r.json(); if (j.error && !j.verdict) throw new Error(j.error);
     RQ.set(e.key, { ...j, at: Date.now() }); RQ.save(); const lab = (RV[j.verdict] || [])[2];
     { const st0 = LF.get(e.key) || {}; const d0 = { phones: [], emails: [], ...(st0.d || {}) }; let ch = !1; for (const [k, v] of [['website', j.website_ownership !== 'given' && j.website], ['linkedin', j.linkedin], ['facebook', j.facebook], ['instagram', j.instagram], ['presence', j.presence_url]]) if (v && !d0[k]) { d0[k] = v; ch = !0; } if (j.presence_kind && !d0.presenceKind) d0.presenceKind = j.presence_kind; if (j.presence_phone && !d0.phones.includes(j.presence_phone)) { d0.phones = [...d0.phones, j.presence_phone].slice(0, 3); ch = !0; } if (j.presence_email && !d0.emails.includes(j.presence_email)) { d0.emails = [...d0.emails, j.presence_email].slice(0, 3); ch = !0; } if (ch) { LF.set(e.key, { ...st0, d: d0, attempts: st0.attempts || j.attempts || [] }); lfSave(); } }
     if (lab) { QL.set(e.key, { label: lab, reason: `🔬 ${j.reason || RV[j.verdict][1]}`, src: 'research', website: j.website || '' }); qlSave(); } leadOemCheck(e, j.role); return j; }
@@ -9708,7 +9750,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       lfSave(); const unchecked = !o.verify || !!RR.noSnov; R.forEach((x) => { if (x.out !== 'qualified') return; const k = reach(x.e); (k.ok || k.ph || (unchecked && k.ems)) && (x.out = 'ready'); x.why = `${k.ok} checked email${k.ok === 1 ? '' : 's'}${RR.noSnov && k.ems > k.ok ? ` · ${k.ems - k.ok} not checked (Snov credits used up)` : ''} · ${k.ph} phone${k.ph === 1 ? '' : 's'} · ${((PPL.get(x.e.key) || {}).people || []).filter((p) => p.pick).length} people${x.why ? ` · ${x.why}` : ''}`; }); RR.run.noSnov = RR.noSnov;
     } finally { LP.busy = ''; RR.last = RR.run; RR.run = null; lpDraw(); }
     const c = (k) => R.filter((x) => x.out === k).length;
-    miLog({ action: 'Other', outcome: `⚡ lead research run · ${batch}`, text: `${R.length} in · ${c('free')} dropped free · ${c('crm')} already in NetHunt · ${c('ready')} ready · ${c('qualified')} qualified without contact · ${c('unsure')} research incomplete · ${c('adjacent')} adjacent · ${c('nonicp')} NON ICP` });
+    miLog({ action: 'Other', outcome: `⚡ lead research run · ${batch} · ${Math.max(1, Math.round((Date.now() - ((RR.last && RR.last.at) || Date.now())) / 6e4))} min`, /* the minutes let the Task Timesheet show the whole run */ text: `${R.length} in · ${c('free')} dropped free · ${c('crm')} already in NetHunt · ${c('ready')} ready · ${c('qualified')} qualified without contact · ${c('unsure')} research incomplete · ${c('adjacent')} adjacent · ${c('nonicp')} NON ICP` });
     C.say(`⚡ Done: ${c('ready')} ready for NetHunt${RR.stop ? ' (stopped early)' : ''}`); richResults(document.querySelector('.cm-lpbar .go') || document.body); }
   function richResults(anchor) { const C = __cm; const el = C.el; const Rn = RR.last; if (!Rn) return; const R = Rn.R; const c = (k) => R.filter((x) => x.out === k).length;
     C.openSheet(anchor, `⚡ ${Rn.batch}`, (body) => {
@@ -9738,31 +9780,43 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       const desc = [ e.tender && `Public tender winner${e.tender.awards ? `: ${e.tender.awards} awards` : ''}${e.tender.value_usd ? `, $${Math.round(e.tender.value_usd).toLocaleString('en')}` : ''}`, e.sup && `Tender research: ${e.sup.cls || ''}`, e.moh && `MOH portal: ${e.moh.role || ''}`, e.cong && `Congress: ${String(e.cong.events || '').slice(0, 120)}`, e.reg && `Device registrations: ${e.reg.n || ''}`, `Medint: ${q.reason || ''}` ].filter(Boolean).join(' · ');
       const ph = [ ...(d.phones || []), e.sup && e.sup.phone, e.moh && e.moh.phone, e.cong && e.cong.phone ].filter(Boolean).filter(phoneOk);
       return [ e.name, skCountry(iso), d.city || '', leadSite(e) || '', leadEmails(e).slice(0, 3).join('; '), [ ...new Set(ph) ].slice(0, 3).join('; '), prod, desc, (e.sup && e.sup.src) || (e.moh && e.moh.src) || (e.cong && e.cong.src) || '', ((RQ.get(e.key) || {}).brands || []).join('; '), e.key ].map(skCsvCell).join(','); });
-    const isos = [ ...new Set(rows.map((r) => r.iso)) ]; const file = `Medint-leads-${isos.length === 1 ? skCountry(isos[0]).replace(/\W+/g, '-') : 'several-countries'}-${todayStr()}.csv`;
+    const isos = [ ...new Set(rows.map((r) => r.iso)) ]; const stem0 = `Medint-leads-${isos.length === 1 ? skCountry(isos[0]).replace(/\W+/g, '-') : 'several-countries'}-${todayStr()}`;
+    let stem = stem0; for (let k = 2; SKX.has(stem) && k < 99; k++) stem = `${stem0}-${k}`; const file = `${stem}.csv`; // a new name each time, so each file's lines point to its own companies
+    SKX.set(stem, { keys: rows.slice(0, 500).map(({ e, iso }) => [ e.key, iso ]), by: (me() || {}).name || '', at: Date.now() }); SKX.save();
     const u = URL.createObjectURL(new Blob([ `﻿${[ H.map(skCsvCell).join(','), ...lines ].join('\n')}` ], { type: 'text/csv' })); const a = C.el('a'); a.href = u; a.download = file; document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4e3);
     miLog({ action: 'Other', outcome: `exported ${Math.min(500, rows.length)} leads for the Lead research skill` }); return { file, n: Math.min(500, rows.length), isos }; }
-  const skPrompt = (x) => `Use the lead-research skill on the attached file ${x.file} — ${x.n} companies exported from Medint (Not in NetHunt${x.isos.length === 1 ? `, ${skCountry(x.isos[0])}` : ''}).\nProfile: ortho_implants. The country is filled on every row; the "Medint key" column is only for matching back.\n1. Dry run first: tell me how many survive the free gates and the CRM check.\n2. Then run it live with --max-units ${Math.max(40, x.n * 8)} (I confirm this ceiling).\n3. Do not write to NetHunt — I add the qualified companies from Medint.\nWhen it is done, attach company_outcomes.csv, nethunt_import.csv and contacts_ready.csv so I can import them into Medint.`;
+  const skPrompt = (x) => `Use the lead-research skill on the attached file ${x.file} — ${x.n} companies exported from Medint (Not in NetHunt${x.isos.length === 1 ? `, ${skCountry(x.isos[0])}` : ''}).\nProfile: ortho_implants. The country is filled on every row. Keep the file name and the "Medint key" column as they are — Medint matches the results back by them.\n1. Dry run first: tell me how many survive the free gates and the CRM check.\n2. Then run it live with --max-units ${Math.max(40, x.n * 8)} (I confirm this ceiling).\n3. Push the ready (qualified) companies and their contacts to NetHunt (step 9: search by name AND domain right before creating, never a second copy; Import Batch = the batch name), and log the writes.\nWhen it is done, give me these files to download so I can import them into Medint: company_outcomes.csv (every company, also the rejected and unsure ones), nethunt_writes.csv, nethunt_import.csv and contacts_ready.csv.`;
   function skParseCsv(text) { const rows = []; let row = [], cell = '', q = !1; const t = String(text).replace(/^﻿/, '');
     for (let i = 0; i < t.length; i++) { const c = t[i]; if (q) { if (c === '"') { if (t[i + 1] === '"') { cell += '"'; i++; } else q = !1; } else cell += c; } else if (c === '"') q = !0; else if (c === ',') { row.push(cell); cell = ''; } else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(cell); cell = ''; row.some((x) => x !== '') && rows.push(row); row = []; } else cell += c; }
     (cell !== '' || row.length) && (row.push(cell), row.some((x) => x !== '') && rows.push(row)); const H = (rows.shift() || []).map((h) => h.trim()); return rows.map((r) => Object.fromEntries(H.map((h, i) => [ h, (r[i] || '').trim() ]))); }
   // every lead Medint knows, by country + name (what the skill echoes back as “Input name”)
-  function skLeadIndex() { const C = __cm; const m = new Map(), byName = new Map(); nhCountries().forEach((x) => { let L = []; try { L = window.cmLeadsFor(x.iso, !0) || []; } catch { return; }
-      L.forEach((e) => { m.set(`${x.iso}|${skNorm(e.name)}`, { e, iso: x.iso }); const k = skNorm(e.name); byName.set(k, byName.has(k) ? null : { e, iso: x.iso }); }); }); return { m, byName }; }
+  function skLeadIndex() { const C = __cm; const m = new Map(), byName = new Map(), byKey = new Map(); nhCountries().forEach((x) => { let L = []; try { L = window.cmLeadsFor(x.iso, !0) || []; } catch { return; }
+      L.forEach((e) => { byKey.set(e.key, { e, iso: x.iso }); m.set(`${x.iso}|${skNorm(e.name)}`, { e, iso: x.iso }); const k = skNorm(e.name); byName.set(k, byName.has(k) ? null : { e, iso: x.iso }); }); }); return { m, byName, byKey }; }
+  // which Medint companies one result row is about: the skill's Row ID (“<exported file>#<line>”, “a#3+a#9” when it merged duplicates) → the
+  // exported file's list of keys; else the “Medint key” column; else country + name
+  function skHits(o, IX) { const out = []; const add = (h) => h && !out.some((x) => x.e.key === h.e.key) && out.push(h);
+    String(o['Row ID'] || '').split('+').forEach((rid) => { const m = rid.trim().match(/^(.*?)(?:\.csv)?#(\d+)$/i); if (!m) return; const X = SKX.get(m[1]); const kv = X && X.keys && X.keys[Number(m[2]) - 2]; kv && add(IX.byKey.get(kv[0])); });
+    String(o['Medint key'] || '').split(/[;+]\s*/).filter(Boolean).forEach((k) => add(IX.byKey.get(k.trim())));
+    if (!out.length) add(IX.m.get(`${skIso(o.Country)}|${skNorm(o['Input name'])}`) || IX.byName.get(skNorm(o['Input name'])) || IX.byName.get(skNorm(o.Company)));
+    return out; }
   const skIso = (country) => { const c = skNorm(country); const r = __cm.rowsOf('countries').find((x) => skNorm(x.country) === c || String(x.iso).toLowerCase() === c || skNorm(x.crm_tags).split(' ').includes(c)); return r ? r.iso : ''; };
   async function skImport(files) { const C = __cm; const T = { out: [], imp: [], ppl: [] };
     for (const f of files) { const rows = skParseCsv(await f.text()); if (!rows.length) continue; const h = Object.keys(rows[0]);
-      if (h.includes('Outcome') && h.includes('Input name')) T.out.push(...rows); else if (h.includes('_row_id') && h.includes('Name')) T.imp.push(...rows); else if (h.includes('row_id') && h.includes('company_name')) T.ppl.push(...rows); }
+      if (h.includes('Outcome') && h.includes('Input name')) T.out.push(...rows); else if (h.includes('record_id') && h.includes('outcome') && h.includes('kind')) (T.wr || (T.wr = [])).push(...rows); else if (h.includes('_row_id') && h.includes('Name')) T.imp.push(...rows); else if (h.includes('row_id') && h.includes('company_name')) T.ppl.push(...rows); }
     if (!T.out.length) { C.say('Choose company_outcomes.csv (and, if you have them, nethunt_import.csv and contacts_ready.csv) from the Lead research batch folder', !0); return null; }
     const IX = skLeadIndex(); const byRow = new Map(); const res = { matched: 0, missing: [], counts: {} };
     const VERD = (o) => { const out = o.Outcome, cat = o['Research category']; if (/^qualified/.test(out)) return 'qualified'; if (out === 'not_suitable') return cat === 'adjacent_supplier' ? 'adjacent_supplier' : cat === 'not_researched' ? '' : 'not_a_fit'; if (out === 'needs_review') return 'insufficient_evidence'; if (out === 'unresolved') return cat === 'research_blocked' ? 'research_blocked' : cat === 'adjacent_supplier' ? 'adjacent_supplier' : 'insufficient_evidence'; return ''; };
-    T.out.forEach((o) => { const iso = skIso(o.Country); const hit = IX.m.get(`${iso}|${skNorm(o['Input name'])}`) || IX.byName.get(skNorm(o['Input name'])); if (!hit) { res.missing.push(o['Input name']); return; } res.matched++; byRow.set(o['Row ID'], hit); const { e } = hit; const v = VERD(o);
+    const byCo = new Map(); T.out.forEach((o) => { const hits = skHits(o, IX); if (!hits.length) { res.missing.push(o['Input name']); return; } res.matched += hits.length; byRow.set(o['Row ID'], hits[0]); [ o.Company, o['Input name'] ].forEach((n) => n && byCo.set(skNorm(n), hits)); hits.forEach((hit) => { const { e } = hit; const v = VERD(o);
       res.counts[o.Label || o.Outcome] = (res.counts[o.Label || o.Outcome] || 0) + 1;
       const prev = RQ.get(e.key) || {}; const skill = { outcome: o.Outcome, label: o.Label, reason: o.Reason, readiness: o['Delivery readiness'], blockers: o['Delivery blockers'], at: Date.now() };
       if (v) { RQ.set(e.key, { ...prev, verdict: v, reason: o.Reason || prev.reason || '', quote: o.Evidence || prev.quote || '', quote_url: o['Evidence URL'] || prev.quote_url || '', website: o.Website || prev.website || '', brands: o['Brand represented'] ? o['Brand represented'].split(/;\s*/).filter(Boolean) : prev.brands || [], segments: prev.segments || [], src: 'skill', skill, at: Date.now() }); const lab = (RV[v] || [])[2]; lab && QL.set(e.key, { label: lab, reason: `🧠 ${o.Label || ''}: ${o.Reason || ''}`.slice(0, 200), src: 'skill', website: o.Website || '' }); }
       else { RQ.set(e.key, { ...prev, skill }); if (o.Outcome === 'not_suitable' && /clinic|hospital|surgeon|doctor|cl[ií]nica/i.test(`${o.Reason} ${o.Gate}`)) QL.set(e.key, { label: 'buyer', reason: `🧠 ${o.Gate || o.Reason}`.slice(0, 200), src: 'skill' }); else if (o.Outcome === 'not_suitable') QL.set(e.key, { label: 'not', reason: `🧠 ${o.Gate || o.Reason}`.slice(0, 200), src: 'skill' }); }
       const st0 = LF.get(e.key) || {}; const d0 = { phones: [], emails: [], ...(st0.d || {}) }; o.Website && !d0.website && (d0.website = o.Website);
       String(o.Email || '').split(/;\s*/).filter((x) => x.includes('@')).forEach((x) => d0.emails.includes(x) || d0.emails.push(x)); String(o.Phone || '').split(/;\s*/).filter(phoneOk).forEach((x) => d0.phones.includes(x) || d0.phones.push(x));
-      LF.set(e.key, { ...st0, d: d0, all: st0.all || [] }); });
+      LF.set(e.key, { ...st0, d: d0, all: st0.all || [] }); }); });
+    // nethunt_writes.csv: the companies Claude created in NetHunt → in NetHunt now (open it from the lead; off the Not in NetHunt list)
+    res.pushed = 0; (T.wr || []).forEach((w) => { if (!/^[0-9a-f]{24}$/.test(String(w.record_id || '')) || !/compan/i.test(w.kind || 'company') || /fail|error|skip/i.test(w.outcome || '')) return;
+      (byCo.get(skNorm(w.name)) || []).forEach(({ e }) => { const prev = RQ.get(e.key) || {}; if (prev.added) return; RQ.set(e.key, { ...prev, added: w.record_id, batch: w.batch || 'Lead research (Claude)', addedBy: 'Claude' }); LP.state.set(e.key, 'added'); res.pushed++; }); });
     T.imp.forEach((r) => { const hit = byRow.get(r._row_id); if (!hit) return; const st0 = LF.get(hit.e.key) || {}; const d0 = { phones: [], emails: [], ...(st0.d || {}) };
       [ [ 'linkedin', 'LinkedIn' ], [ 'facebook', 'Facebook' ], [ 'instagram', 'Instagram' ], [ 'address', 'Address' ], [ 'city', 'City' ] ].forEach(([k, c]) => { r[c] && !d0[k] && (d0[k] = r[c]); });
       LF.set(hit.e.key, { ...st0, d: d0, all: st0.all || [] }); const prev = RQ.get(hit.e.key) || {}; RQ.set(hit.e.key, { ...prev, skillRec: { products: r.Products, industry: r.Industry, size: r['Company size'], update: r.Update, batch: r['Import Batch'] } });
@@ -9774,11 +9828,12 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     return { ...res, people: [ ...P.values() ].reduce((a, L) => a + L.length, 0) }; }
   function skMenu(btn, rows) { const C = __cm;
     C.openMenu(btn, [ { icon: '📤', label: `Export ${Math.min(500, rows.length)} for the Lead research skill`, sub: 'a file Claude reads as it is — then the prompt is copied for you', act: () => { const x = skExport(rows); x && copyText(skPrompt(x)).then(() => C.say(`📤 ${x.file} downloaded · the prompt for Claude is copied — open Claude (Cowork), attach the file and paste`)); } },
-      { icon: '📥', label: 'Import the skill’s results', sub: 'company_outcomes.csv (+ nethunt_import.csv, contacts_ready.csv)', act: () => { const f = C.el('input'); f.type = 'file'; f.accept = '.csv,text/csv'; f.multiple = !0; f.addEventListener('change', async () => { try { const r = await skImport([ ...f.files ]); if (!r) return; C.say(`🧠 Imported ${r.matched} compan${r.matched === 1 ? 'y' : 'ies'}${r.people ? ` and ${r.people} people` : ''}${r.missing.length ? ` · ${r.missing.length} not found here (${r.missing.slice(0, 3).join(', ')}${r.missing.length > 3 ? '…' : ''})` : ''} — ${Object.entries(r.counts).map(([k, n]) => `${n} ${k}`).join(', ')}`); lpDraw(); } catch (er) { C.say(`Couldn’t import: ${er.message || er}`, !0); } }); f.click(); } },
+      { icon: '📥', label: 'Import the skill’s results', sub: 'company_outcomes.csv (+ nethunt_writes.csv, nethunt_import.csv, contacts_ready.csv)', act: () => { const f = C.el('input'); f.type = 'file'; f.accept = '.csv,text/csv'; f.multiple = !0; f.addEventListener('change', async () => { try { const r = await skImport([ ...f.files ]); if (!r) return; try { lpDraw(); } catch (_e) { /* the list redraws on its own */ } C.say(`🧠 Imported ${r.matched} compan${r.matched === 1 ? 'y' : 'ies'}${r.people ? ` and ${r.people} people` : ''}${r.pushed ? ` · ${r.pushed} pushed to NetHunt by Claude (off the list now)` : ''}${r.missing.length ? ` · ${r.missing.length} not found here (${r.missing.slice(0, 3).join(', ')}${r.missing.length > 3 ? '…' : ''})` : ''} — ${Object.entries(r.counts).map(([k, n]) => `${n} ${k}`).join(', ')}`); lpDraw(); } catch (er) { C.say(`Couldn’t import: ${er.message || er}`, !0); } }); f.click(); } },
       { icon: '📋', label: 'Copy the prompt only', act: () => copyText(skPrompt({ file: 'the exported file', n: Math.min(500, rows.length), isos: [ ...new Set(rows.map((r) => r.iso)) ] })).then(() => C.say('📋 Prompt copied')) } ]); }
   // 🔬 deep check: one more look from other sources (LinkedIn / Facebook company pages, catalogues, directories), aimed at what is still open
   async function leadDeep(e, iso) { const rq = RQ.get(e.key) || {}; const ctry = skCountry(iso); const hint = [ e.tender && e.tender.niche, e.sup && e.sup.cat, e.moh && e.moh.sub ].filter(Boolean).join(' · ');
-    const r = await fetch(`/api/research?deep=1&name=${encodeURIComponent(e.name)}&country=${encodeURIComponent(ctry)}&hint=${encodeURIComponent(hint)}&missing=${encodeURIComponent(rq.missing || '')}&site=${encodeURIComponent(leadSite(e) || '')}`, { credentials: 'same-origin' }); const j = await r.json(); if (j.error && !j.verdict) throw new Error(j.error);
+    const O = await leadOwn(e, iso).catch(() => ({ own: '', ortho: '' }));
+    const r = await fetch('/api/research', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deep: 1, name: e.name, country: ctry, hint, missing: rq.missing || '', site: leadSite(e) || '', own: O.own, ortho: O.ortho }) }); const j = await r.json(); if (j.error && !j.verdict) throw new Error(j.error);
     const decided = /^(qualified|not_a_fit|adjacent_supplier)$/.test(j.verdict); RQ.set(e.key, decided ? { ...rq, ...j, deep: !0, firstPass: rq.verdict, at: Date.now() } : { ...rq, deepTried: { at: Date.now(), reason: j.reason, missing: j.missing } }); RQ.save();
     const lab = decided && (RV[j.verdict] || [])[2]; lab && (QL.set(e.key, { label: lab, reason: `🔬 deep: ${j.reason || ''}`, src: 'research' }), qlSave()); return j; }
   const lpDeepRows = (rows) => rows.filter((r) => { const q = RQ.get(r.e.key) || {}; return /^(insufficient_evidence|research_blocked)$/.test(q.verdict || '') && !q.deepTried && !q.deep; });
@@ -9838,7 +9893,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       { const so = el('div', 'cm-ldrow'); [['linkedin', '💼 LinkedIn'], ['facebook', '📘 Facebook'], ['instagram', '📷 Instagram']].forEach(([k, t]) => { const v = (d && d[k]) || rq[k]; if (v && /^https?:/.test(v)) { const a = el('a', 'cm-mini', t); a.href = v; a.target = '_blank'; a.rel = 'noopener noreferrer'; so.append(a); } }); const pr = (d && d.presence) || rq.presence_url; if (pr && !(d && d.website) && /^https?:/.test(pr)) { const a = el('a', 'cm-mini', `🪪 ${((d && d.presenceKind) || rq.presence_kind) === 'listing' ? 'Page that names them' : 'Their page'} ↗`); a.href = pr; a.target = '_blank'; a.rel = 'noopener noreferrer'; so.append(a); } if (so.childNodes.length) s.append(so); }
       { const at = ((LF.get(e.key) || {}).attempts || []).concat(rq.attempts || []); if (at.length) { const dt = el('details', 'cm-rnmore'); dt.append(el('summary', 'mut', `How it was searched · ${at.length} steps`)); const ul = el('ol', 'mut'); [...new Set(at)].forEach((a0) => ul.append(el('li', null, a0))); dt.append(ul); s.append(dt); } } });
     step('③', 'Qualify from their own website', ['a', '1 AI check'], (s) => { s.append(btn(rq.verdict ? '↻ Check again' : '🔬 Read their website & judge it', 'research', () => leadResearch(e, iso)));
-      if (rq.verdict) { const v = el('div', `cm-rvbox v-${rq.verdict}`); v.append(el('b', null, `${RV[rq.verdict][0]} ${RV[rq.verdict][1]}${rq.role ? ` · ${rq.role}` : ''}`), el('div', null, rq.reason || '')); if (rq.segments && rq.segments.length) v.append(el('div', 'mut', `Segments: ${rq.segments.join(', ')}`)); if (rq.brands && rq.brands.length) v.append(el('div', 'mut', `Brands named: ${rq.brands.join(', ')}`)); if (rq.round === 2) v.append(el('div', 'mut', '↻ The first website found was another company — searched once more.')); if (rq.quote) { const bq = el('blockquote', 'cm-fitq', `“${rq.quote}”`); v.append(bq); } if (rq.quote_url) { const a = el('a', null, `from ${String(rq.quote_url).replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)} ↗`); a.href = rq.quote_url; a.target = '_blank'; a.rel = 'noopener noreferrer'; v.append(a); }
+      if (rq.verdict) { const v = el('div', `cm-rvbox v-${rq.verdict}`); v.append(el('b', null, `${RV[rq.verdict][0]} ${RV[rq.verdict][1]}${rq.role ? ` · ${rq.role}` : ''}`), el('div', null, rq.reason || '')); if (rq.segments && rq.segments.length) v.append(el('div', 'mut', `Segments: ${rq.segments.join(', ')}`)); if (rq.brands && rq.brands.length) v.append(el('div', 'mut', `Brands named: ${rq.brands.join(', ')}`)); if (rq.round === 2) v.append(el('div', 'mut', '↻ The first website found was another company — searched once more.')); if (rq.quote) { const bq = el('blockquote', 'cm-fitq', `“${rq.quote}”`); v.append(bq); } if (rq.quote_url === 'medint:records') v.append(el('div', 'mut', '📚 from our own records (NetHunt history, tenders won, registrations)')); else if (rq.quote_url) { const a = el('a', null, `from ${String(rq.quote_url).replace(/^https?:\/\/(www\.)?/, '').slice(0, 60)} ↗`); a.href = rq.quote_url; a.target = '_blank'; a.rel = 'noopener noreferrer'; v.append(a); }
         if (rq.verdict === 'research_blocked') v.append(el('div', 'mut', 'Not a rejection — the site could not be read. Add the website above, or check it yourself.'));
         rq.missing && /^(insufficient_evidence|research_blocked|adjacent_supplier)$/.test(rq.verdict) && v.append(el('div', 'mut', `Still open: ${rq.missing}`));
         rq.deep && v.append(el('div', 'mut', `🔬 Decided by the deep check (other sources)${rq.firstPass ? ` — first pass: ${(RV[rq.firstPass] || ['', rq.firstPass])[1]}` : ''}.`));
@@ -9867,7 +9922,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
   // ===================== ☁ lead research shared through Medint's database (not only this browser) =====================
   // labels (qual), Find details (find), website research (rich), people (ppl) and email checks (vmail): pulled every 90 s, pushed 2 s after a change.
   // This browser keeps a copy, so the lists still open instantly and work if the server is briefly unreachable.
-  const LS = { maps: { qual: QL, find: LF, rich: RQ, ppl: PPL, vmail: VM }, sent: {}, dirty: new Set(), since: 0, t: 0, busy: !1, ok: null };
+  const LS = { maps: { qual: QL, find: LF, rich: RQ, ppl: PPL, vmail: VM, skx: SKX }, sent: {}, dirty: new Set(), since: 0, t: 0, busy: !1, ok: null };
   const lsVal = (kind, v) => (kind === 'lead' && v && v.gone ? null : kind === 'find' ? (v && v.d && !v.busy ? { d: v.d, all: (v.all || []).slice(0, 30), ready: v.ready, at: v.at || Date.now() } : undefined) : v);
   const lsKey = 'medint.leadstore.since';
   try { LS.since = Number(localStorage.getItem(lsKey)) || 0; LS.ck = localStorage.getItem(`${lsKey}.ck`) || ''; } catch (_e) { LS.since = 0; }
@@ -10007,7 +10062,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       const row = el('div', 'row'); const rw = el('button', 'cm-btn ghost', '↻ Rewrite'); rw.type = 'button'; rw.disabled = st.busy; rw.addEventListener('click', () => { TMSG.delete(`${cid}|${task}|${st.ch}|${lang}`); st.busy = !0; C.sheetDraw(); go(); });
       if (st.ch === 'email') { const b = el('button', 'cm-btn', '✉ Open in email'); b.type = 'button'; b.disabled = st.busy; b.addEventListener('click', () => { const m = st.text.match(/^Subject:\s*(.*)\n+/i); openMail({ anchor: b, cid, to: st.to, subject: m ? m[1].trim() : task, body: m ? st.text.slice(m[0].length) : st.text }); }); row.append(rw, b); }
       else { const a = el('a', 'cm-btn', '💬 Open WhatsApp'); const num = String(st.to || '').replace(/[^\d+]/g, ''); a.href = num.replace(/\D/g, '').length >= 8 ? `${C.waHref(num)}?text=${encodeURIComponent(st.text)}` : '#'; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.style.textDecoration = 'none';
-        a.addEventListener('click', (ev) => { const n2 = String(st.to || '').replace(/\D/g, ''); if (n2.length < 8) { ev.preventDefault(); C.say('Add their WhatsApp number first', !0); return; } a.href = `${C.waHref(st.to)}?text=${encodeURIComponent(st.text)}`; miLog({ action: 'WhatsApp', company_id: cid, outcome: `opened from task: ${task.slice(0, 80)}`, text: st.text.slice(0, 2000) }); }); row.append(rw, a); }
+        a.addEventListener('click', (ev) => { const n2 = String(st.to || '').replace(/\D/g, ''); if (n2.length < 8) { ev.preventDefault(); C.say('Add their WhatsApp number first', !0); return; } a.href = `${C.waHref(st.to)}?text=${encodeURIComponent(st.text)}`; /* counted once really sent — see waOpened (the page-wide WhatsApp link handler notes it as opened) */ }); row.append(rw, a); }
       body.append(row, el('p', 'mut', 'Written from the 🧠 summary and the history. Anything in [brackets] is for you to fill in.')); });
     const go = async () => { const ch0 = st.ch; const t = await tmDraft(cid, name, task, ch0, lang, K.person); if (st.ch !== ch0) return; st.text = t; st.busy = !1; /^(💬|✉)/.test((document.getElementById('cm-sheet-title') || {}).textContent || '') && C.sheetDraw(); }; go(); }
   // one task line (tasks panel and company card)
@@ -11432,6 +11487,13 @@ section.cm-folded.cm-wide, .cm-grid2 > section.cm-folded { align-self: start; }
   // the answer then decides where the WhatsApp button shows (C.waKnown, read by waOk) · 🟢 Check WhatsApp in Best partners does a whole country
   const WAQ = new Set(); const WAPEND = new Set(); let waT = 0; let waOff = ''; let waLoud = !1;
   const waNorm = (t) => { const s0 = String(t || '').trim(); if (!/^(\+|00)/.test(s0)) return ''; const n = s0.replace(/\D/g, '').replace(/^00/, ''); return n.length >= 8 && n.length <= 15 && !/^0/.test(n) ? n : ''; };
+  // a number written without +country code: checked with the company's country code (Chile “9 8765 4321” → 56987654321); the
+  // local spelling is remembered (C.waLocal) so its 💬 button shows — with the right number — once the checker says it is on WhatsApp
+  const waIntl = (t, iso) => { const n = waNorm(t); if (n) return n; const s0 = String(t || '').trim(); if (!s0 || /^(\+|00)/.test(s0)) return '';
+    const loc = s0.replace(/\D/g, '').replace(/^0+/, ''); const cc = String((__cm.dialCode && __cm.dialCode(iso)) || ''); if (!cc || loc.length < 6 || loc.length > 13) return '';
+    const full = loc.startsWith(cc) && loc.length >= cc.length + 8 ? loc : `${cc}${loc}`; if (full.length < 8 || full.length > 15) return '';
+    __cm.waLocal && __cm.waLocal.set(loc, full); return full; };
+  const isoOfCo = (co) => { const c0 = String((co && co.country) || '').split(/ \| /)[0].trim(); return (c0 && __cm.isoOfCountry && __cm.isoOfCountry(c0)) || (co && co.iso) || ''; };
   const waSplit = (v) => (Array.isArray(v) ? v : String(v ?? '').split(/ \| |\n|;|,(?=\s*(?:\+|00))/)).map((x) => String(x).trim()).filter(Boolean);
   const waRedraw = () => { try { dash.setParams({}); const sh = document.getElementById('cm-sheet'); const t = (document.getElementById('cm-sheet-title') || {}).textContent || ''; sh && !sh.hidden && /^(⚡|🔎)/.test(t) && !document.querySelector('#cm-sheet .cm-phload') && __cm.sheetDraw(); } catch (_e) { window.__cmDbg && window.__cmDbg(_e, 'app3'); } };
   function waCheck(list, loud) { const K = __cm.waKnown; if (!K || waOff) { loud && waOff && __cm.say(waOff, !0); return 0; } let n = 0;
@@ -11455,21 +11517,89 @@ section.cm-folded.cm-wide, .cm-grid2 > section.cm-folded { align-self: start; }
       const L = []; rec.data.forEach((r) => /phone|whats|mobile|tel|cell|gsm/i.test(String(r.field || '')) && L.push(...waSplit(r.value)));
       pc.data.forEach((p) => [ p.phone, p.phones, p.whatsapp, p.mobile ].forEach((v) => L.push(...waSplit(v))));
       const co = (__cm.companyById && __cm.companyById(cid)) || {}; L.push(...waSplit(co.phones));
-      String(co.related_ids || '').split(/[|,\s]+/).filter(Boolean).slice(0, 10).forEach((rid) => { const r = __cm.companyById && __cm.companyById(rid); r && L.push(...waSplit(r.phones)); });
-      const key = `${cid}|${[ ...new Set(L.map(waNorm).filter(Boolean)) ].sort().join(',')}`; if (seen.has(key)) return; seen.add(key);
-      waCheck(L);
+      const recC = (rec.data.find((r) => /^country$/i.test(String(r.field || ''))) || {}).value; const iso = isoOfCo(co) || isoOfCo({ country: Array.isArray(recC) ? recC[0] : recC }) || window.cmCompanyIso || '';
+      const N = L.map((x) => waIntl(x, iso));
+      String(co.related_ids || '').split(/[|,\s]+/).filter(Boolean).slice(0, 10).forEach((rid) => { const r = __cm.companyById && __cm.companyById(rid); r && waSplit(r.phones).forEach((x) => N.push(waIntl(x, isoOfCo(r) || iso))); });
+      const all = [ ...new Set(N.filter(Boolean)) ]; const key = `${cid}|${all.sort().join(',')}`; if (seen.has(key)) return; seen.add(key);
+      waCheck(all);
     } catch (_e) { window.__cmDbg && window.__cmDbg(_e, 'app3'); } });
   }
+  // a ✓ on WhatsApp buttons whose number the checker confirmed (small green dot; the tooltip says so)
+  const waMark = () => { const K = __cm.waKnown; if (!K || !K.size || document.hidden) return; document.querySelectorAll('a[href^="https://wa.me/"]:not([data-wak])').forEach((a) => { const d = (String(a.getAttribute('href')).match(/wa\.me\/(\d+)/) || [])[1]; if (!d || !K.has(d)) return; a.dataset.wak = K.get(d) ? '1' : '0'; if (K.get(d)) { a.classList.add('cm-waok'); a.title = `${a.title || 'WhatsApp'} · ✓ checked: on WhatsApp`; } }); };
+  setInterval(waMark, 1500);
   function waAllBtn() { // Best partners: check every number of the companies on this page (and the people shown)
     const C = __cm; const el = C.el;
-    const L = []; C.rowsOf('companies').forEach((c) => L.push(...waSplit(c.phones))); const pc = dash.data('partner_contacts'); ('ok' === pc.status ? pc.data : []).forEach((p) => [ p.phone, p.phones ].forEach((v) => L.push(...waSplit(v))));
-    const all = [ ...new Set(L.map(waNorm).filter(Boolean)) ]; const todo = all.filter((n) => !C.waKnown.has(n)); const yes = all.filter((n) => C.waKnown.get(n) === !0).length; const busy = waBusy();
+    const v0 = dash.params().iso || ''; const L = []; const byId = new Map(); C.rowsOf('companies').forEach((c) => { byId.set(c.id, c); const iso = isoOfCo(c) || v0; waSplit(c.phones).forEach((x) => L.push(waIntl(x, iso))); });
+    const pc = dash.data('partner_contacts'); ('ok' === pc.status ? pc.data : []).forEach((p) => { const co = String(p.company_ids || '').split('|').map((x) => byId.get(x)).find(Boolean) || null; const iso = (co && isoOfCo(co)) || v0; [ p.phone, p.phones ].forEach((v) => waSplit(v).forEach((x) => L.push(waIntl(x, iso)))); });
+    const all = [ ...new Set(L.filter(Boolean)) ]; const todo = all.filter((n) => !C.waKnown.has(n)); const yes = all.filter((n) => C.waKnown.get(n) === !0).length; const busy = waBusy();
     const b = el('button', 'cm-chip cm-waall', busy ? `🟢 Checking ${busy}…` : todo.length ? `🟢 Check WhatsApp · ${todo.length}` : `🟢 ${yes} of ${all.length} on WhatsApp`); b.type = 'button';
-    b.title = waOff || (todo.length ? `Check ${todo.length} phone number${todo.length === 1 ? '' : 's'} of these companies for WhatsApp (about $${Math.max(0.01, todo.length / 1000).toFixed(2)} — each number is checked once)` : all.length ? 'Every number here has been checked' : 'No international numbers (+…) here yet');
+    b.title = waOff || (todo.length ? `Check ${todo.length} phone number${todo.length === 1 ? '' : 's'} of these companies for WhatsApp (about $${Math.max(0.01, todo.length / 1000).toFixed(2)} — each number is checked once)` : all.length ? 'Every number here has been checked' : 'No phone numbers here yet');
     b.disabled = !todo.length || !!busy; b.setAttribute('aria-busy', busy ? 'true' : 'false');
     b.addEventListener('click', () => { const n = waCheck(todo, !0); if (n) { b.disabled = !0; b.textContent = `🟢 Checking ${n}…`; } });
     return b; }
+  // ===================== 💬 WhatsApp / ✉ Gmail draft OPENED → counted only when really sent =====================
+  // Tapping WhatsApp (or a Gmail draft link) only opens the app — the message may never go. It becomes a real 💬 WhatsApp / ✉ email in
+  // the Medint log (Days & goals, the Task Timesheet, “contacted recently”) once one of these happens:
+  //   1 · “How did it go?” is answered for that company (Power hour Done, or the row in Best partners) → waConfirm
+  //   2 · NetHunt shows OUR message to that company or one of its people since the moment it was opened — read LIVE from NetHunt
+  //       (each record's own timeline, not the 90-day history list), every 2 minutes and whenever Medint is back in front, for 2 hours
+  //   3 · ✓ Sent on the small bar shown when you come back to Medint
+  // ✕ Not sent, or nothing within 2 hours → nothing is counted. Kept on this device (localStorage) so a reload doesn't lose it.
+  const PO_KEY = 'medint.opened'; const PO_WIN = 2 * 36e5; const PO_OURS = /@(kavikaplan\.com|duni-tech\.com|oliga\.com\.tr|d-xray\.com|next-shoulder\.com|motionmedical\.fi)$/i;
+  const poGet = () => { try { return JSON.parse(localStorage.getItem(PO_KEY) || '[]'); } catch { return []; } };
+  const poSet = (L) => { try { localStorage.setItem(PO_KEY, JSON.stringify(L.filter((p) => Date.now() - p.at < 864e5).slice(-60))); } catch { /* private mode: answered right away by the bar */ } };
+  const poOpen = () => poGet().filter((p) => !p.done && Date.now() - p.at < PO_WIN);
+  function waOpened(x) {
+    if (!x || !x.cid) return; // no company → nothing to check against; it stays “opened” only
+    const L = poGet(); const old = L.find((p) => !p.done && p.cid === x.cid && p.kind === x.kind && Date.now() - p.at < PO_WIN);
+    if (old) { Object.assign(old, { to: x.to || old.to, text: x.text || old.text, identity: x.identity || old.identity, brand: x.brand || old.brand, asked: 0 }); poSet(L); }
+    else { const it = { id: `o${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: Date.now(), asked: 0, ...x }; L.push(it); poSet(L); poBase(it.id).catch(() => {}); }
+    poTick(9e4);
+  }
+  const PO_REC = new Map(); // cid → [ { f, id } ] the company and its people (read once)
+  async function poRecs(cid) { if (PO_REC.has(cid)) return PO_REC.get(cid); const L = [ { f: __cm.NH_FOLDER, id: cid } ];
+    try { const r = await __cm.nhCall('filter_records', { folderId: CT_ID, fieldKeys: 'label', filter: { Company: { _in: cid } }, limit: 8 }); ((r && r.records) || []).forEach((p) => L.push({ f: CT_ID, id: p.id })); } catch (_e) { /* the company alone */ }
+    PO_REC.set(cid, L); return L; }
+  async function poEvents(cid, kind, from) { const out = []; for (const r of await poRecs(cid)) { try { const t = await __cm.nhCall('list_record_timeline', { folderId: r.f, recordId: r.id, types: [ kind === 'email' ? 'email' : 'chat' ], limit: 5, ...(from ? { from: new Date(from).toISOString() } : {}) }); ((t && t.events) || []).forEach((e) => out.push(e)); } catch (_e) { /* next */ } } return out; }
+  async function poBase(id) { const p = poGet().find((x) => x.id === id); if (!p || p.kind !== 'wa') return; const ev = await poEvents(p.cid, 'wa'); const base = {}; ev.forEach((e) => { base[e.id] = (e.chat && e.chat.totalMessageCount) || 0; }); const L = poGet(); const q = L.find((x) => x.id === id); if (q && !q.base) { q.base = base; poSet(L); } }
+  // NetHunt, live: our message since it was opened?
+  async function poSentAt(p) {
+    const from = p.at - 6e4; const ev = (await poEvents(p.cid, p.kind, from)).filter((e) => Number(e.time) >= from);
+    if (p.kind === 'email') { const e = ev.find((x) => PO_OURS.test((x.creator && x.creator.email) || '')); return e ? Number(e.time) : 0; }
+    const e = ev.find((x) => { const c = x.chat || {}; if (c.status && c.status !== 'NOT_REPLIED') return !0; const b = p.base && p.base[x.id]; return b != null && (c.totalMessageCount || 0) - b >= 2; }); // last message ours — or ours and already their answer
+    return e ? Number((e.chat && e.chat.lastMessage && e.chat.lastMessage.date) || e.time) : 0;
+  }
+  function poConfirm(id, how, at) {
+    const L = poGet(); const q = L.find((x) => x.id === id); if (!q || q.done) return; q.done = how; poSet(L);
+    miLog({ action: q.kind === 'email' ? 'Email' : 'WhatsApp', company_id: q.cid, outcome: `${q.kind === 'email' ? 'email' : 'WhatsApp'} sent to ${q.to || '—'} (${how})`, text: q.text || '', identity: q.identity || '', brand: q.brand || '', at: Math.min(Date.now(), Math.max(q.at, at || q.at)) });
+    poBar(); }
+  function waConfirm(cid, how) { poGet().filter((p) => p.cid === cid && !p.done && Date.now() - p.at < 864e5).forEach((p) => poConfirm(p.id, how)); }
+  function poDrop(id, why) { const L = poGet(); const q = L.find((x) => x.id === id); if (q && !q.done) { q.done = why; poSet(L); } poBar(); }
+  let poT = 0; let poRun = !1;
+  function poTick(ms) { clearTimeout(poT); poT = setTimeout(poCheck, ms == null ? 12e4 : ms); }
+  async function poCheck() {
+    if (poRun) return; poRun = !0;
+    try { for (const p of poGet().filter((x) => !x.done)) {
+        if (Date.now() - p.at > PO_WIN + 6e5) { poDrop(p.id, 'not sent (nothing in NetHunt within 2 hours)'); continue; }
+        const at = await poSentAt(p).catch(() => 0); at && poConfirm(p.id, 'seen in NetHunt', at); } }
+    finally { poRun = !1; poOpen().length && poTick(); }
+  }
+  // the bar when you come back to Medint
+  function poBar() {
+    const C = __cm; const el = C.el; let bar = document.getElementById('cm-pobar'); const L = poOpen().filter((p) => Date.now() - p.at > 4e3);
+    if (!L.length || document.hidden) { bar && bar.remove(); return; }
+    const p = L[L.length - 1]; bar = bar || el('div', 'cm-pobar'); bar.id = 'cm-pobar'; bar.replaceChildren();
+    bar.append(el('span', 'q', `${p.kind === 'email' ? '✉ Did you send the email' : '💬 Did you send the WhatsApp'} to ${p.company || p.to || 'them'}?${L.length > 1 ? ` (${L.length} waiting)` : ''}`));
+    const y = el('button', 'cm-btn', '✓ Sent'); y.type = 'button'; y.addEventListener('click', () => poConfirm(p.id, 'you confirmed', p.at));
+    const n = el('button', 'cm-btn ghost', '✕ Not sent'); n.type = 'button'; n.addEventListener('click', () => poDrop(p.id, 'not sent (you said)'));
+    bar.append(y, n, el('span', 'mut', 'Medint also checks NetHunt by itself'));
+    bar.isConnected || document.body.append(bar);
+  }
+  const poBack = () => { if (document.hidden) return; poOpen().length && (poCheck(), setTimeout(poBar, 300)); };
+  document.addEventListener('visibilitychange', poBack); window.addEventListener('focus', poBack);
+  setTimeout(() => { poOpen().length && (poCheck(), poBar()); }, 4000); // after a reload
   window.__cm3 = {
+    waOpened, waConfirm, poGet, poCheck,
     waCheck, waAllBtn, waBusy,
     evtOf, evtJudge, evtChip, evtOpen, evtResearch, EVT,
     arSetBtn, arPanel, arStyle, arMine, brainPrefetch, brainBusy,
@@ -11477,12 +11607,12 @@ section.cm-folded.cm-wide, .cm-grid2 > section.cm-folded { align-self: start; }
     openMakers, mfIndex, mfFind, mfDupes, mfDupFor, mfMerge, mfDismiss, mfAddIntel, mfFillAI, mfKey, mfPretty, mfPageWatch, mfExhLink, MFS, MFP,
     brEmpty, cnAdd, cnLoad, cnParse, CN, cnWatch, SCO, scoApply, scoEdit, scoMini, scoOf, coWxWatch, FOLD, foldWatch, dupGroups, mergeInto, mergeAll, MERGED,
     findContacts, fcRefresh,
-    richRun, richOpen, richResults, RR, leadAdd,
+    richRun, richOpen, richResults, RR, leadAdd, leadResearch, leadOwn,
     tmDraft, tmOpen, tmButtons, tmContacts, reachLine,
     todayHome: !0, todayItems, todayList,
     useAdd, useRows, USE,
     MN, MT, mtList, mtCompanyFor, mtGemTitle, mtGemFor, mtTidy, mtRules, openLog, logSave, openMeetNotes, openMeetings, mtHomeWatch, mtCoWatch, mtLoadCal, mtLoadGem,
-    vcIntent, vcUrl, phoneOk, pplClean, skParseCsv, skImport, skPrompt, leadDeep, qlRulesX: (e) => qlRules(e), taskChip, waitTasks, taskBadge, aiReplyState, aiReplyErr, aiReplyRetry, reachCard, reachHooks, reachTouches, reachNext, parkAdvice, parkSet, parkWake, parkWatch, isParked, openParked, meetBlock, tripLegFor, reachInsert, PK, OFR,
+    vcIntent, vcUrl, phoneOk, pplClean, skParseCsv, skImport, skPrompt, skExport, SKX, leadDeep, qlRulesX: (e) => qlRules(e), taskChip, waitTasks, taskBadge, aiReplyState, aiReplyErr, aiReplyRetry, reachCard, reachHooks, reachTouches, reachNext, parkAdvice, parkSet, parkWake, parkWatch, isParked, openParked, meetBlock, tripLegFor, reachInsert, PK, OFR,
     LS, lsPull, lsPush, rnNoReply,
     openLead, leadDraw, RQ, VM, PPL, LOBJ,
     coFitFrom, repliesWaiting, workHours, openWeekly, openReplies,

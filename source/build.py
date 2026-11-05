@@ -4,7 +4,11 @@ SITE = 'site/public'
 page = open('index.html').read()
 app = open('app.js').read()
 app2 = open('app2.js').read() if os.path.exists('app2.js') else ''
-app3 = open('app3.js').read() if os.path.exists('app3.js') else ''  # third source file (email, inbox, AI, leads, research…)  # APPMIN: source; the site uses the same readable source
+app3 = open('app3.js').read() if os.path.exists('app3.js') else ''
+# the build shown at the top right (v2026-11-04·ab12): the day it was built + a short code of the code — so you can see a deploy went live
+import datetime as _dt, hashlib as _hl
+_stamp = _dt.date.today().isoformat() + '·' + _hl.sha256((app + app2 + app3).encode()).hexdigest()[:4]
+app = re.sub(r"const cmVersion = '[^']*';", f"const cmVersion = '{_stamp}';", app, count=1)  # third source file (email, inbox, AI, leads, research…)  # APPMIN: source; the site uses the same readable source
 # split the page: markup/styles stay, inline script becomes page.js (own scope, like inside Claude)
 scripts = list(re.finditer(r'<script>([\s\S]*?)</script>', page))
 assert len(scripts) == 1, len(scripts)

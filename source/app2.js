@@ -1611,13 +1611,20 @@ function openPowerHour(anchor, focusId, mode) {
       const ntg = C.oursKey() === 'next' && nextTag(it.iso || dash.params().iso, 'icon'); /* only when Next Shoulder is chosen at the top: a small 🔴 on the name line */
       ntg && nm.append(ntg);
     }
+    phBrandNow = it.__brand || key;
     const meta = el('div', 'meta cm-phmeta');
     meta.append([ String(it.city || F.get('City') || '').split(/,|\n/)[0] ].filter(Boolean).join(' · '), String(it.city || F.get('City') || '').split(/,|\n/)[0] ? ' · ' : '', (() => {
       const st = F.get(C.STATUS_FIELD[it.__brand]) || (it.__brand === key ? it.status : '');
       const sp = el('span', 'cm-stpill', st ? `${C.OURS[it.__brand].label}: ${st}` : 'no status');
       sp.dataset.st = st ? /lost|not interested|no fit|not a fit|rejected/i.test(st) ? 'lost' : String(stageGuess(st)) : 'none';
       return sp;
-    })(), rc ? ` · last contact ${rc.ago} ago (${rc.type})` : rc === null ? ' · never really contacted' : '');
+    })(), (() => { // 🕑 last contact — short, so it sits on the line of the status and category boxes (fills in by itself if the history is still loading)
+      const lc = el('span', 'cm-phlc');
+      const fill = n => { const r = C.realContact(it.id); if (r === void 0) { lc.hidden = !0; n < 30 && setTimeout(() => (lc.isConnected || !n) && fill(n + 1), 500); return; }
+        lc.hidden = !1; lc.textContent = r ? `🕑 ${r.ago} ago (${r.type})` : '🕑 never contacted'; lc.title = r ? `Last contact: ${r.ago} ago, by ${r.type}` : 'No real call, WhatsApp, email or meeting yet'; };
+      fill(0);
+      return lc;
+    })());
     const sg = C.statusSuggestBtn(it.id, it.name, key, it.status);
     sg && meta.append(' ', sg);
     box.append(meta);
@@ -1950,8 +1957,8 @@ function openPowerHour(anchor, focusId, mode) {
       big.append(x);
     }
     {
-      const hd = el('div', 'meta');
-      hd.append(rc && rc.pending ? 'Reply draft, based on their last message:' : 'Message draft:', lg);
+      const hd = el('div', 'meta cm-phdrafthd');
+      hd.append(el('span', 'cm-phdraftk', rc && rc.pending ? 'Reply draft, based on their last message:' : 'Message draft:'), lg);
       // brand the message is for (starts with the brand where they are furthest along)
             const br = el('div', 'cm-chips cm-phlang');
       [ 'next', 'dunitech', 'motion' ].forEach(b => {
@@ -2041,7 +2048,7 @@ function openPowerHour(anchor, focusId, mode) {
           box.append(st);
         }
       }
-      if (window.__cm3 && window.__cm3.aiCopyBtn) { // 📋 improve this draft with your own ChatGPT / Claude / Gemini
+      if (!1 && window.__cm3 && window.__cm3.aiCopyBtn) { // (📋 “use your own ChatGPT” removed from Power hour — Kavi, Nov 2026)
         const lm0 = window.__cm3.lastMsgs ? window.__cm3.lastMsgs(it.id) || [] : [];
         const cpb = window.__cm3.aiCopyBtn('cm-mini cm-phcopy', () => window.__cm3.aiPrompt('whatsapp', dr.value, { company: it.name, lang: ({ en: 'English', es: 'Spanish', pt: 'Portuguese', tr: 'Turkish', fr: 'French', ru: 'Russian', ar: 'Arabic', az: 'Azerbaijani' })[lang] || '', sender: me().name, brand: bname, thread: lm0.map(m => `${m.incoming ? 'They' : 'Us'}: ${m.body}`).join('\n') || (rc && rc.preview ? `They: ${rc.preview}` : '') }), t => { dr.value = t; it.__draft = t; it.__edited = !0; grow(); });
         lg.append(cpb);
@@ -2186,14 +2193,16 @@ function openPowerHour(anchor, focusId, mode) {
     const doneB = el('button', 'cm-btn', 'Done →');
     doneB.type = 'button';
     doneB.title = 'Saves the outcome and your notes to NetHunt, then opens the next company (or press Enter)';
-    const undoOn = phUndo && phUndo.next === it.id && Date.now() - phUndo.at < 5e3;
-    const skip = el('button', 'cm-btn ghost', undoOn ? '↶ Undo' : 'Skip');
+    const UNDO_MS = 2500; // ↶ Undo stays for 2.5 s after a Skip, then the button is Skip again (changed in place — the page doesn't redraw)
+    const undoLive = () => !!(phUndo && phUndo.next === it.id && Date.now() - phUndo.at < UNDO_MS);
+    const undoOn = undoLive();
+    const skip = el('button', 'cm-btn ghost cm-phskip', undoOn ? '↶ Undo' : 'Skip');
     skip.type = 'button';
     undoOn && (skip.title = `Back to ${phUndo.name}`);
     skip.addEventListener('click', ev => {
       ev.preventDefault();
       ev.stopPropagation();
-      if (undoOn) {
+      if (undoLive()) {
         phWorked.delete(phUndo.id);
         i = phUndo.idx;
         phUndo = null;
@@ -2215,11 +2224,12 @@ function openPowerHour(anchor, focusId, mode) {
       const sb = document.querySelector('#cm-sheet .sb');
       sb && (sb.scrollTop = 0);
       setTimeout(() => {
-        if (phUndo && Date.now() - phUndo.at >= 5e3) {
+        if (phUndo && Date.now() - phUndo.at >= UNDO_MS) {
           phUndo = null;
-          C.sheetDraw && C.sheetDraw(); // the window may have been closed in the meantime
+          const b0 = document.querySelector('#cm-sheet:not([hidden]) .cm-phskip'); // the window may have been closed in the meantime
+          b0 && (b0.textContent = 'Skip', b0.removeAttribute('title'));
         }
-      }, 5100);
+      }, UNDO_MS + 100);
     });
     doneB.addEventListener('click', async () => {
       if (window.__cm3 && window.__cm3.piPending && window.__cm3.piPending(it.id)) { // pasted info not saved yet: save it first, then go on as usual
@@ -2302,6 +2312,7 @@ function openPowerHour(anchor, focusId, mode) {
         });
         done.push(it.id);
         phWorked.add(it.id);
+        o2 && o2[0] !== '📝 Comment' && window.__cm3 && window.__cm3.waConfirm && window.__cm3.waConfirm(it.id, `“How did it go?”: ${o2[0]}`); // a WhatsApp / email opened for this company was really used
         dS.at = 0;
         C.say(`✓ ${it.name} saved`);
         dash.refresh('companies');
@@ -2909,17 +2920,20 @@ function relatedLine(cid, F) {
     const eb = __cm.el('button', 'cm-chip cm-addmiss', '🔎 Find contacts');
     eb.title = 'Find or paste a number, email, website or person for this company — it counts in your Details found today';
     eb.type = 'button';
-    let open = null;
+    // the open panel survives the page being drawn again (after ＋ Add the company reloads): same panel, same results, same place
+    const put = n => { const a = wrap.querySelector('.cm-cacts'); a ? a.after(n) : wrap.append(n); };
     eb.addEventListener('click', () => {
-      if (open) {
-        open.remove();
-        open = null;
+      if (coFind && coFind.cid === cid) {
+        coFind.node.remove();
+        coFind = null;
         return;
       }
-      open = window.__cm3 && window.__cm3.findContacts ? window.__cm3.findContacts(cid, F.get('Name') || '', F) : enrichPanel(cid, F.get('Name') || '', F);
-      (wrap.querySelector('.cm-cacts') || wrap).after(open);
+      const node = window.__cm3 && window.__cm3.findContacts ? window.__cm3.findContacts(cid, F.get('Name') || '', F) : enrichPanel(cid, F.get('Name') || '', F);
+      coFind = { cid, node };
+      put(node);
     });
     (wrap.querySelector('.cm-cacts') || wrap).append(eb);
+    coFind && (coFind.cid === cid ? put(coFind.node) : (coFind = null)); // another company: the panel of the last one is not brought back
   }
   {
     dash.data('medint_assign');
@@ -2932,6 +2946,8 @@ function relatedLine(cid, F) {
   wrap.append(identityLine(cid));
   return wrap;
 }
+
+let coFind = null; // 🔎 Find contacts open on the company page: { cid, node }
 
 // ---- Recent activity: show only some event types, newest or oldest first ----
 const ACT_TYPES = [ [ 'email', '✉ Emails' ], [ 'campaign_email', '📣 Email campaigns' ], [ 'calendar', '📅 Meetings' ], [ 'comment', '📝 Comments' ], [ 'call', '☎ Calls' ], [ 'chat', '💬 WhatsApp chats' ] ];
@@ -3357,15 +3373,22 @@ function miLog(ev) {
     },
     body: JSON.stringify({
       ...fields,
-      Company: ev.company_id || ''
+      Company: ev.company_id || '',
+      Brand: ev.brand || miBrand() // which client the work is for — names the ⚡ block in the Task Timesheet (Medint's own log only, not NetHunt)
     })
   }).catch(() => {});
+}
+let phBrandNow = ''; // the brand of the company open in Power hour
+function miBrand() {
+  const sh = document.getElementById('cm-sheet'); const t = (document.getElementById('cm-sheet-title') || {}).textContent || '';
+  if (phBrandNow && sh && !sh.hidden && /^⚡/.test(t)) return phBrandNow;
+  const k = __cm.oursKey(); return __cm.OURS[k] && __cm.OURS[k].all ? '' : k;
 }
 
 // the Medint Log record for an action (also handed to the server for emails it sends later)
 function miLogFields(ev) {
   const p = me();
-  const now = new Date;
+  const now = ev.at ? new Date(ev.at) : new Date; // (a confirmed WhatsApp keeps the time it was really sent)
   const c = ev.company_id && (__cm.rowsOf('companies').find(x => x.id === ev.company_id) || __cm.companyById(ev.company_id)) || {};
   const cname = ev.company || c.company || '';
   const ctry = ev.country || String(c.country || '').split(' | ')[0] || '';
@@ -3506,13 +3529,19 @@ document.addEventListener('click', e => {
   };
   gm && idn.mailbox && (a.href = a.href.replace(/^https:\/\/mail\.google\.com\/mail\/(u\/[^/]+\/)?/, `https://mail.google.com/mail/u/${encodeURIComponent(idn.mailbox)}/`));
   const q = new URLSearchParams(a.href.split('?')[1] || '');
+  // only OPENED here: it counts as a 💬 WhatsApp / ✉ email once it is really sent — “How did it go?” answered, NetHunt shows our message
+  // (read live), or ✓ Sent on the bar shown when you come back to Medint (app3 · waOpened). Not sent → not counted.
+  const to = wa ? `+${(a.href.match(/wa\.me\/(\d+)/) || [])[1] || ''}` : q.get('to') || '';
+  const txt0 = wa ? q.get('text') || '' : [ q.get('su'), q.get('body') ].filter(Boolean).join('\n\n');
+  const idt = wa ? `WhatsApp ${idn.whatsapp || '—'}` : idn.mailbox;
   miLog({
-    action: wa ? 'WhatsApp' : 'Email',
+    action: 'Other',
     company_id: id,
-    outcome: wa ? `opened to +${(a.href.match(/wa\.me\/(\d+)/) || [])[1] || ''}` : `draft to ${q.get('to') || ''}`,
-    text: wa ? q.get('text') || '' : [ q.get('su'), q.get('body') ].filter(Boolean).join('\n\n'),
-    identity: wa ? `WhatsApp ${idn.whatsapp || '—'}` : idn.mailbox
+    outcome: wa ? `WhatsApp opened to ${to}` : `email draft opened to ${to}`,
+    text: txt0,
+    identity: idt
   });
+  window.__cm3 && window.__cm3.waOpened && window.__cm3.waOpened({ kind: wa ? 'wa' : 'email', cid: id, company: (__cm.companyById && (__cm.companyById(id) || {}).company) || '', to, text: txt0, identity: idt, brand: miBrand() });
   id && keepIdentity(id);
 }, !0);
 
@@ -4133,7 +4162,7 @@ function progressView(person) {
     fd1 && hd.append(el('span', 'cm-daytag new', `🔎 ${fd1} detail${fd1 === 1 ? '' : 's'} found`));
     const cl = el('button', 'cm-mini x', '✕'); cl.type = 'button'; cl.title = 'Close — back to today'; cl.addEventListener('click', () => { progSel.delete(person); box.replaceWith(progressView(person)); }); hd.append(cl);
     fw.append(hd);
-    x && x.cos.size ? fw.append(dayCompanies(x, new Date(`${dayDate(sel)}T00:00:00`).getTime())) : fw.append(el('div', 'mut', 'No companies worked this day.'));
+    x && (x.cos.size || (x.upd && x.upd.size)) ? fw.append(dayCompanies(x, new Date(`${dayDate(sel)}T00:00:00`).getTime(), person)) : fw.append(el('div', 'mut', 'No companies worked this day.'));
     box.append(fw);
   }
   return box;
@@ -4141,25 +4170,47 @@ function progressView(person) {
 
 // the companies one person worked on one day: name (opens the company), first contact or follow-up, and what was done
 const DAY_ACT = [ [ 'Call', '☎', 'call' ], [ 'WhatsApp', '💬', 'WhatsApp' ], [ 'Email', '✉', 'email' ], [ 'Comment', '📝', 'note' ], [ 'Status', '📊', 'status change' ], [ 'Meeting', '🤝', 'meeting' ], [ 'Catalogue', '📎', 'catalogue' ], [ 'Deal', '💼', 'deal' ], [ 'Contact', '👤', 'contact detail' ], [ 'Ortho', '🦴', 'ortho check' ], [ 'Field change', '✏️', 'field change' ] ];
-function dayCompanies(x, dayStart) {
+const DAY_CONTACT = new Set([ 'Call', 'WhatsApp', 'Email', 'Meeting' ]); // real contact with the company (first contact / follow-up)
+const DAY_EV = new Map(); // `${person}|${day}` → that day's log lines (for the details under a company)
+function dayCompanies(x, dayStart, person) {
   const C = __cm;
   const el = C.el;
   const ch = dash.data('contact_history');
   const before = new Set(('ok' === ch.status ? ch.data : []).filter(e => e.type !== 'calendar' && new Date(e.time) < dayStart).map(e => e.record_id));
   const by = x.by || {};
-  const L = [ ...x.cos ].map(id => {
+  const ids = [ ...new Set([ ...x.cos, ...(x.upd || []) ]) ];
+  const L = ids.map(id => {
     const b = by[id] || { acts: {}, name: '', at: 0 };
     const co = (C.companyById && C.companyById(id)) || __cm.rowsOf('companies').find(r => r.id === id) || {};
-    return { id, name: co.company || co.name || b.name || 'Company', iso: co.iso || '', acts: b.acts, at: b.at, fresh: !before.has(id) };
+    const ks = Object.keys(b.acts || {});
+    const kind = ks.some(k => DAY_CONTACT.has(k)) ? before.has(id) ? 'fu' : 'new' : ks.length && ks.every(k => k === 'Status') ? 'upd' : 'work';
+    return { id, name: co.company || co.name || b.name || 'Company', iso: co.iso || '', acts: b.acts || {}, at: b.at, kind };
   }).sort((a, b2) => (b2.at || 0) - (a.at || 0) || a.name.localeCompare(b2.name));
+  // one bulk change: 5+ companies whose only action was a status change, within the same 2 minutes → one line
+  const bulk = []; const upd = L.filter(r => r.kind === 'upd' && r.at).sort((a, b2) => a.at - b2.at);
+  for (let i = 0; i < upd.length;) { let j = i; while (j + 1 < upd.length && upd[j + 1].at - upd[i].at <= 12e4) j++; if (j - i + 1 >= 5) bulk.push(upd.slice(i, j + 1)); i = j + 1; }
+  const inBulk = new Set(bulk.flat().map(r => r.id));
+  const TAG = { new: [ 'new', '🆕 first contact' ], fu: [ 'fu', '🔁 follow-up' ], upd: [ 'upd', '📊 updated' ], work: [ 'upd', '📝 worked on' ] };
+  const hm = t => new Date(t).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  // the details of one company that day (tap the row): every line Medint logged, with its time
+  const details = (r, host) => {
+    const k = `${person || ''}|${dayStart}`; const show = rows => { host.replaceChildren(); const mine = rows.filter(e => e.company_id === r.id && e.action !== 'Other' || e.company_id === r.id && /opened|sent|result|status|follow|note|added/i.test(e.outcome || '')).sort((a, b2) => a.epoch - b2.epoch);
+      if (!mine.length) { host.append(el('div', 'mut', 'No details saved for this day.')); return; }
+      mine.forEach(e => { const ic = (DAY_ACT.find(a => a[0] === e.action) || [ '', '•' ])[1]; const t = String(e.text || '').replace(/\s+/g, ' ').trim();
+        const ln = el('div', 'cm-dayev'); ln.append(el('span', 'mut t', hm(e.epoch)), el('span', 'i', ic), el('span', 'o', `${e.action === 'Other' ? '' : `${e.action}: `}${e.outcome || ''}`), t ? el('span', 'mut x', `— ${t.slice(0, 160)}${t.length > 160 ? '…' : ''}`) : ''); host.append(ln); }); };
+    const have = DAY_EV.get(k); if (have) { show(have); return; }
+    host.replaceChildren(el('div', 'mut', 'Loading what was done…'));
+    const qs0 = new URLSearchParams({ summary: '1', from: String(dayStart), to: String(dayStart + 864e5), ...(person ? { person } : {}) });
+    fetch(`/api/medint?${qs0}`, { credentials: 'same-origin' }).then(r0 => r0.json()).then(j => { const rows = j.rows || []; DAY_EV.set(k, rows); show(rows); }).catch(() => host.replaceChildren(el('div', 'mut', 'Couldn’t load the details.')));
+  };
   const w = el('div', 'cm-daycolist');
-  L.forEach(r => {
+  const rowOf = r => {
     const row = el('div', 'cm-dayco');
     const nb = el('button', 'cm-co', `${r.iso && C.flag ? `${C.flag(r.iso) || ''} ` : ''}${r.name}`);
     nb.type = 'button';
     nb.dataset.openCompany = r.id;
     nb.title = 'Open the company';
-    row.append(nb, el('span', `cm-daytag ${r.fresh ? 'new' : 'fu'}`, r.fresh ? '🆕 first contact' : '🔁 follow-up'));
+    row.append(nb, el('span', `cm-daytag ${TAG[r.kind][0]}`, TAG[r.kind][1]));
     const ac = el('span', 'acts');
     DAY_ACT.forEach(([k, ic, l]) => {
       const n = r.acts[k];
@@ -4168,9 +4219,21 @@ function dayCompanies(x, dayStart) {
       s0.title = `${n} ${l}${n === 1 ? '' : 's'}`;
       ac.append(s0);
     });
-    r.at && ac.append(el('span', 'mut t', new Date(r.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })));
+    r.at && ac.append(el('span', 'mut t', hm(r.at)));
+    const more = el('button', 'cm-mini cm-daymore', '▾'); more.type = 'button'; more.title = 'What was done'; more.setAttribute('aria-expanded', 'false');
+    const det = el('div', 'cm-daydet2'); det.hidden = !0;
+    more.addEventListener('click', ev => { ev.stopPropagation(); det.hidden = !det.hidden; more.textContent = det.hidden ? '▾' : '▴'; more.setAttribute('aria-expanded', String(!det.hidden)); det.hidden || details(r, det); });
+    ac.append(more);
     row.append(ac);
-    w.append(row);
+    const wrap = el('div', 'cm-daycow'); wrap.append(row, det);
+    return wrap;
+  };
+  const shown = new Set();
+  L.forEach(r => {
+    if (inBulk.has(r.id)) { const g = bulk.find(b2 => b2.some(x0 => x0.id === r.id)); if (shown.has(g)) return; shown.add(g);
+      const dt = el('details', 'cm-daybulk'); dt.append(el('summary', null, `📊 ${g.length} companies changed at ${hm(g[0].at)} — one bulk change (not counted as companies worked)`));
+      g.forEach(x0 => dt.append(rowOf(x0))); w.append(dt); return; }
+    w.append(rowOf(r));
   });
   return w;
 }
@@ -4287,10 +4350,11 @@ function drawDays(body, f) {
     { // 🏢 companies worked: tap → the companies, with what was done on each that day
       const b = el('button', `ms cm-daycos${f.pick.list ? ' on' : ''}`);
       b.type = 'button';
-      b.disabled = !c.n;
-      b.title = c.n ? 'Show the companies worked that day' : 'No companies that day';
+      const nu = x.upd ? x.upd.size : 0, any = c.n || nu;
+      b.disabled = !any;
+      b.title = any ? 'Show the companies worked that day' : 'No companies that day';
       b.setAttribute('aria-expanded', String(!!f.pick.list));
-      b.append(el('b', null, String(c.n)), el('span', null, `🏢 companies worked ${c.n ? (f.pick.list ? '▴' : '▾') : ''}`));
+      b.append(el('b', null, String(c.n)), el('span', null, `🏢 companies worked${nu ? ` · ${nu} 📊 updated` : ''} ${any ? (f.pick.list ? '▴' : '▾') : ''}`));
       b.addEventListener('click', () => {
         f.pick.list = !f.pick.list;
         C.sheetDraw();
@@ -4303,7 +4367,7 @@ function drawDays(body, f) {
       nums.append(y);
     });
     det.append(nums);
-    f.pick.list && c.n && det.append(dayCompanies(x, new Date(`${dayDate(f.pick.d)}T00:00:00`).getTime()));
+    f.pick.list && (c.n || (x.upd && x.upd.size)) && det.append(dayCompanies(x, new Date(`${dayDate(f.pick.d)}T00:00:00`).getTime(), f.pick.p));
     body.append(det);
   }
   {
@@ -5069,6 +5133,7 @@ function attachRowOut() {
       outcome: res ? `${res}: note` : 'note',
       text: note.value.trim()
     });
+    res && window.__cm3 && window.__cm3.waConfirm && window.__cm3.waConfirm(cid, `“How did it go?”: ${res}`); // the WhatsApp / email opened from this row was really used
     __cm.say(`Saved${res ? ` · ${res}` : ''}${res === 'Meeting set' ? ' — add it to the calendar from the company page' : ''}`);
     phWorked.add(cid);
     pqMemo.key = '';
@@ -6962,7 +7027,7 @@ function enrichPanel(cid, name, F, place) {
         if (j.error) throw new Error(j.error);
         const web = (j.items || []).find(x => x.kind === 'website');
         const head = F.get('Website') ? (j.site_error ? `Their website (${String(F.get('Website')).replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '').slice(0, 40)}) didn’t open: ${j.site_error}. ${j.fallback ? (web ? 'Searched by name instead — check the website found below before adding it. ' : 'Searched by name instead — no other website found. ') : ''}` : j.pages && j.pages.length ? `Read ${j.pages.length} page${j.pages.length === 1 ? '' : 's'} of their website. ` : '') : `No website in NetHunt — ${j.searched ? (web ? `searched by name and found ${web.value.replace(/^https?:\/\/(www\.)?/, '')}${web.ownership === 'confirmed' ? ' (its page names the company)' : ' (not confirmed — check it)'}. ` : 'searched by name, no website of theirs found. ') : 'web search isn’t set up, so it could not search by name. '}`;
-        show(j.items || [], `${head}${j.search_error ? `Search problem: ${j.search_error}. ` : ''}${j.search_ready ? '' : 'Web search is off — add BRIGHTDATA_SERP_ZONE, SERPER_API_KEY or FIRECRAWL_API_KEY in Cloudflare.'}`);
+        show(j.items || [], `${head}${j.search_error ? `Search problem: ${j.search_error}. ` : ''}${j.search_ready ? '' : 'Web search is off — add BRIGHTDATA_API_KEY and BRIGHTDATA_SERP_ZONE in Cloudflare.'}`);
       } catch {
         show([], 'Couldn’t search right now.');
       }
@@ -9344,6 +9409,8 @@ function daysData() {
         b.at = Math.max(b.at, r.at || r.epoch || 0);
       }
     });
+    // a company whose only action that day was a status change (often many at once) is not a company worked: 📊 updated, outside the goal
+    P.forEach(m => m.forEach(x => { x.upd = new Set(); Object.entries(x.by || {}).forEach(([id, b]) => { const ks = Object.keys(b.acts || {}); if (ks.length && ks.every(k => k === 'Status')) { x.cos.delete(id); x.upd.add(id); } }); }));
     plans.forEach(r => {
       const m = String(r.outcome || '').match(/plan:\s*(\d+)\s*h/);
       get(r.person, r.d).plan = m ? Number(m[1]) : /day off/.test(r.outcome) ? 0 : null;
