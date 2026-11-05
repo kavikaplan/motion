@@ -7,6 +7,7 @@
 //  4. Instagram: searched when the site doesn't link one; accepted only when it is clearly theirs
 // Every step is written to `attempts` so a "not found" can be argued afterwards, not merely believed.
 import { webSearch } from './search.js';
+import { bdPage, bdSearchOn } from './brightdata.js';
 
 const UA = { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36', accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'accept-language': 'en,es;q=0.8,pt;q=0.7,fr;q=0.6' }; // a normal browser: many company sites refuse bots
 // country → [ccTLD, dialling code]
@@ -31,10 +32,8 @@ const titleOf = (h) => ((String(h || '').match(/<title[^>]*>([\s\S]*?)<\/title>/
 const CHALLENGE = /just a moment|access denied|attention required|verify you are human|captcha|cloudflare ray id|enable javascript and cookies/i;
 
 async function fetchPage(env, url) {
-  try { const r = await fetch(url, { headers: UA, redirect: 'follow', signal: AbortSignal.timeout(8000) }); if (r.ok && /html/i.test(r.headers.get('content-type') || '')) { const html = (await r.text()).slice(0, 400000); if (!CHALLENGE.test(titleOf(html)) && txt(html).length > 200) return { url: r.url, html }; } } catch { /* try a reader */ }
-  try { if (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE) { const r = await fetch('https://api.brightdata.com/request', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${env.BRIGHTDATA_API_KEY}` }, body: JSON.stringify({ zone: env.BRIGHTDATA_ZONE, url, format: 'raw' }), signal: AbortSignal.timeout(25000) }); if (r.ok) { const html = (await r.text()).slice(0, 400000); if (/<html|<body|<div/i.test(html) && !CHALLENGE.test(titleOf(html))) return { url, html, via: 'Bright Data' }; } } } catch { /* none */ }
-  try { if (env.FIRECRAWL_API_KEY) { const r = await fetch('https://api.firecrawl.dev/v1/scrape', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${env.FIRECRAWL_API_KEY}` }, body: JSON.stringify({ url, formats: ['rawHtml'], onlyMainContent: false }), signal: AbortSignal.timeout(25000) }); const j = await r.json().catch(() => ({})); const html = j.data && (j.data.rawHtml || j.data.html); if (r.ok && html && !CHALLENGE.test(titleOf(html))) return { url, html: String(html).slice(0, 400000), via: 'Firecrawl' }; } } catch { /* none */ }
-  return null;
+  try { const r = await fetch(url, { headers: UA, redirect: 'follow', signal: AbortSignal.timeout(8000) }); if (r.ok && /html/i.test(r.headers.get('content-type') || '')) { const html = (await r.text()).slice(0, 400000); if (!CHALLENGE.test(titleOf(html)) && txt(html).length > 200) return { url: r.url, html }; } } catch { /* try Bright Data */ }
+  const p = await bdPage(env, url, { max: 400000 }); return p || null;
 }
 
 // how the company's name relates to a domain: 'full' (its distinctive words run together), 'partial' (one of them), ''
@@ -66,7 +65,7 @@ const EMAIL = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
 export async function discover(env, rawName, country, opts = {}) {
   const attempts = []; const log = (s) => attempts.push(s); const cc = CC[norm(country)] || null; const sname = searchName(rawName); const all = words(sname); const rare = all.filter((w) => w.length >= 3 && !TRADE.has(w));
   const out = { website: '', website_ownership: '', website_evidence: '', presence_url: '', presence_kind: '', presence_phone: '', presence_email: '', linkedin: '', facebook: '', instagram: '', results: [], attempts, via: '' };
-  if (!env.SERPER_API_KEY && !env.FIRECRAWL_API_KEY && !(env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_SERP_ZONE)) { log('no search key set (SERPER_API_KEY, FIRECRAWL_API_KEY or BRIGHTDATA_SERP_ZONE)'); out.error = 'web search isn’t set up'; return out; }
+  if (!bdSearchOn(env)) { log('web search isn’t set up (BRIGHTDATA_API_KEY + BRIGHTDATA_SERP_ZONE)'); out.error = 'web search isn’t set up'; return out; }
   const seen = new Map(); const add = (list, q) => (list || []).forEach((r) => { const k = r.link; if (!k || seen.has(k)) return; seen.set(k, { title: r.title || '', link: r.link, snippet: r.snippet || r.description || '', q }); });
   const search = async (q, num = 8) => { const sr = await webSearch(env, q, num); out.via = out.via || sr.via; if (sr.error) { log(`search “${q}” failed: ${sr.error}`); return null; } log(`search “${q}” → ${(sr.organic || []).length} results${sr.kg && sr.kg.website ? ` · knowledge panel ${host(sr.kg.website)}` : ''}`); add(sr.organic, q); if (sr.kg && sr.kg.website) add([{ title: sr.kg.title || rawName, link: sr.kg.website, snippet: 'Google knowledge panel' }], q); return sr; };
   // 1a. the plain search (full raw name, legal form included, no quotes, no country) + the quoted search_name with the country

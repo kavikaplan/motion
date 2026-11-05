@@ -1,3 +1,4 @@
+import { tsSync } from '../../_lib/timesheet.js';
 /**
  * /api/gmail/connect · callback · accounts · send · threads · thread · find · disconnect
  * Sends and reads email through the connected Google Workspace mailboxes (see _lib/gmail.js).
@@ -12,7 +13,7 @@ const CONTACTS = new Map();
 export async function onRequest(ctx) {
   const { request, env, params } = ctx; const path = [].concat(params.path || [])[0] || ''; const login = loginOf(request); const url = new URL(request.url);
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET || !env.TOKEN_KEY) return json({ error: 'Gmail isn’t set up: add GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and TOKEN_KEY in Cloudflare.', code: 'not_configured' }, 501);
-  if (path === 'cron') { if (!env.CRON_KEY || request.headers.get('x-cron-key') !== env.CRON_KEY) return json({ error: 'forbidden' }, 403); return json(await dispatch(env)); } // optional: a scheduler (Cloudflare Worker cron) calls this every few minutes
+  if (path === 'cron') { if (!env.CRON_KEY || request.headers.get('x-cron-key') !== env.CRON_KEY) return json({ error: 'forbidden' }, 403); const out = await dispatch(env); let ts = null; try { ts = await tsSync(env); } catch (e) { ts = { ok: false, error: e.message || String(e) }; } /* ⚡ finished work sessions → the Task Timesheet, on the same 5-minute beat */ return json(out && typeof out === 'object' && !Array.isArray(out) ? { ...out, timesheet: ts } : { result: out, timesheet: ts }); } // optional: a scheduler (Cloudflare Worker cron) calls this every few minutes
   if (!login) return json({ error: 'not signed in' }, 401);
   try {
     if (path === 'connect') { const st = `${login}|${Date.now()}`; const q = new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, redirect_uri: `${ORIGIN(request)}/api/gmail/callback`, response_type: 'code', scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent select_account', include_granted_scopes: 'true', state: `${btoa(st)}.${await sign(env, st)}`, ...(url.searchParams.get('hint') ? { login_hint: url.searchParams.get('hint') } : {}) }); return Response.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${q}`, 302); }

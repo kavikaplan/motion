@@ -6,7 +6,7 @@
  * Everyone signed in shares the same store, so research done once is seen by the whole team on every device.
  */
 const json = (b, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
-const KINDS = new Set(['qual', 'find', 'rich', 'ppl', 'vmail', 'brain', 'task', 'objx', 'kol', 'kolspec', 'park', 'offer', 'mnote', 'use', 'score', 'fold', 'lead', 'evt']); // evt: 🎯 event sizes researched or typed by the team
+const KINDS = new Set(['qual', 'find', 'rich', 'ppl', 'vmail', 'brain', 'task', 'objx', 'kol', 'kolspec', 'park', 'offer', 'mnote', 'use', 'score', 'fold', 'lead', 'evt', 'skx']); // evt: 🎯 event sizes researched or typed by the team
 let made = false;
 async function ready(db) { if (made) return; await db.batch([db.prepare('CREATE TABLE IF NOT EXISTS leadstore (kind TEXT, k TEXT, v TEXT, by TEXT, at INTEGER, PRIMARY KEY (kind, k))'), db.prepare('CREATE INDEX IF NOT EXISTS ls_at ON leadstore (at)')]); made = true; }
 const login = (r) => (r.headers.get('cf-access-authenticated-user-email') || '').toLowerCase();

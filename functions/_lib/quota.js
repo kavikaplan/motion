@@ -1,5 +1,5 @@
 /**
- * Daily caps on paid lookups (Apollo / Snov / Serper / Firecrawl / Bright Data / AI web checks).
+ * Daily caps on paid lookups (Apollo / Snov / Bright Data / AI web checks).
  * House is never capped. Everyone else gets a generous daily allowance per kind; the count lives in D1 (table quota).
  * Returns null when the call may go ahead, or a 429 Response when today's allowance is used up.
  */

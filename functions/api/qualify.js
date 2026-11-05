@@ -1,15 +1,16 @@
 import { quota } from '../_lib/quota.js';
 import { webSearch } from '../_lib/search.js';
+import { bdSearchOn } from '../_lib/brightdata.js';
 /**
  * GET /api/qualify?name=&country=  → { verdict: ortho|not|buyer|pharmacy|person|maybe, reason, website }
- * One Google search (Serper, SERPER_API_KEY) + the AI (same keys as /api/summarize) decides whether the company sells orthopaedic products.
+ * One Google search (Bright Data SERP zone) + the AI (same keys as /api/summarize) decides whether the company sells orthopaedic products.
  */
 import { onRequestPost as ai } from './summarize.js';
 const json = (b, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
 export async function onRequestGet({ request, env }) {
   { const q = await quota(request, env, 'qualify'); if (q) return q; }
   const u = new URL(request.url); const name = (u.searchParams.get('name') || '').trim().slice(0, 160); const country = (u.searchParams.get('country') || '').trim().slice(0, 60); if (!name) return json({ error: 'name missing' }, 400);
-  if (!env.SERPER_API_KEY && !env.FIRECRAWL_API_KEY) return json({ error: 'Add SERPER_API_KEY or FIRECRAWL_API_KEY in Cloudflare for the web check' });
+  if (!bdSearchOn(env)) return json({ error: 'Web search isn’t set up — add BRIGHTDATA_API_KEY and BRIGHTDATA_SERP_ZONE in Cloudflare' });
   const sr = await webSearch(env, `"${name}" ${country}`, 8); if (!sr.organic.length && !sr.kg.title) return sr.error ? json({ error: sr.error }) : json({ verdict: 'maybe', reason: 'nothing found on the web' }); const res = sr.organic.slice(0, 8); const kg = sr.kg || {};
   const lines = [kg.title && `Google card: ${kg.title} — ${kg.type || ''} — ${kg.description || ''} — ${kg.website || ''}`, ...res.map((x, i) => `${i + 1}. ${x.title} — ${x.link} — ${x.snippet || ''}`)].filter(Boolean).join('\n').slice(0, 5000);
   if (!lines) return json({ verdict: 'maybe', reason: 'nothing found on Google' });

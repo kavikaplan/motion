@@ -21,12 +21,13 @@ async function ready(db) {
     db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS ev_once ON events (epoch, person, action, company_id)'),
   ]);
   try { await db.prepare('ALTER TABLE events ADD COLUMN nh_id TEXT').run(); } catch { /* already there */ }
+  try { await db.prepare('ALTER TABLE events ADD COLUMN brand TEXT').run(); } catch { /* already there */ } // which client the work was for (Next / Dunitech) — names the timesheet block
   // lines written by mistake when a country's record was only READ (Oct 2026: “Registration” with nothing in it): hidden, not deleted
   try { await db.prepare("UPDATE events SET voided = 1 WHERE voided = 0 AND action = 'Registration' AND IFNULL(outcome, '') = '' AND IFNULL(company_id, '') = ''").run(); } catch { /* fine */ }
   readyDone = true;
 }
-const row = (b, person, login) => [Number(b.Epoch) || Date.now(), String(b.Time || ''), person, String(b['Person email'] || ''), login, String(b.Action || ''), String(b.Outcome || '').slice(0, 500), String(b.Text || '').slice(0, 20000), String(b.Company || ''), String(b['Company name'] || ''), String(b.Country || ''), String(b.Identity || ''), String(b.Source || 'Website'), b.Voided ? 1 : 0, b.nh_id || null];
-const INSERT = 'INSERT OR IGNORE INTO events (epoch, time, person, email, login, action, outcome, text, company_id, company, country, identity, source, voided, nh_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)';
+const row = (b, person, login) => [Number(b.Epoch) || Date.now(), String(b.Time || ''), person, String(b['Person email'] || ''), login, String(b.Action || ''), String(b.Outcome || '').slice(0, 500), String(b.Text || '').slice(0, 20000), String(b.Company || ''), String(b['Company name'] || ''), String(b.Country || ''), String(b.Identity || ''), String(b.Source || 'Website'), b.Voided ? 1 : 0, b.nh_id || null, String(b.Brand || '').slice(0, 20)];
+const INSERT = 'INSERT OR IGNORE INTO events (epoch, time, person, email, login, action, outcome, text, company_id, company, country, identity, source, voided, nh_id, brand) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)';
 async function me(request, env) {
   const login = (request.headers.get('cf-access-authenticated-user-email') || '').toLowerCase();
   let who = { name: '', role: HOUSE(env).includes(login) ? 'House' : 'Person' };
@@ -57,7 +58,7 @@ export async function onRequestPost({ request, env }) {
 }
 export async function onRequestGet({ request, env }) {
   if (!env.MEDINT_DB) return json({ ok: false, code: 'not_configured', note: 'Bind a D1 database as MEDINT_DB to keep Medint’s own copy of the log.' }, 501);
-  const who = await me(request, env); const own = new URL(request.url).searchParams.get('daily') && (new URL(request.url).searchParams.get('person') || '') === who.name; if (who.role !== 'House' && !own) return json({ error: 'House only' }, 403);
+  const who = await me(request, env); const own = (new URL(request.url).searchParams.get('daily') || new URL(request.url).searchParams.get('summary')) && (new URL(request.url).searchParams.get('person') || '') === who.name; // a person may read their own lines (Days & goals details) if (who.role !== 'House' && !own) return json({ error: 'House only' }, 403);
   await ready(env.MEDINT_DB);
   const u = new URL(request.url); const from = Number(u.searchParams.get('from')) || Date.parse(u.searchParams.get('from') || '') || 0; const to = Number(u.searchParams.get('to')) || 9e15;
   const person = u.searchParams.get('person') || ''; const action = u.searchParams.get('action') || '';
@@ -81,6 +82,7 @@ export async function onRequestGet({ request, env }) {
   if (u.searchParams.get('summary')) {
     const db = env.MEDINT_DB;
     const w = `voided = 0 AND epoch >= ? AND epoch < ?${country ? ' AND country = ?' : ''}${source ? ' AND source = ?' : ''}`; const wa = [from, to, ...(country ? [country] : []), ...(source ? [source] : [])];
+    if (u.searchParams.get('counts') && who.role !== 'House') return json({ error: 'House only' }, 403);
     if (u.searchParams.get('counts')) { // just the numbers (for comparing with another period)
       const [c0, co0, mt0] = await db.batch([db.prepare(`SELECT person, action, COUNT(*) AS n FROM events WHERE ${w} GROUP BY person, action`).bind(...wa), db.prepare(`SELECT person, COUNT(DISTINCT company_id) AS n FROM events WHERE ${w} AND company_id <> '' GROUP BY person`).bind(...wa), db.prepare(`SELECT person, COUNT(*) AS n FROM events WHERE ${w} AND (action = 'Meeting' OR outcome LIKE 'Meeting set%') GROUP BY person`).bind(...wa)]);
       return json({ counts: c0.results, companies: co0.results, meetings: mt0.results });
@@ -93,6 +95,7 @@ export async function onRequestGet({ request, env }) {
       db.prepare("SELECT country, COUNT(*) AS n FROM events WHERE voided = 0 AND epoch >= ? AND epoch < ? AND country <> '' GROUP BY country ORDER BY n DESC").bind(from, to),
     ]);
     const total = await db.prepare('SELECT COUNT(*) AS n FROM events').first();
+    if (who.role !== 'House') return json({ rows: list.results.filter((r) => r.person === who.name) }); // a person: only their own lines
     return json({ counts: c.results, companies: co.results, meetings: mt.results, rows: list.results, countries: ctry.results, stored: total.n });
   }
   const { results } = await env.MEDINT_DB.prepare('SELECT * FROM events WHERE epoch >= ? AND epoch < ? ORDER BY epoch DESC LIMIT 200000').bind(from, to).all();

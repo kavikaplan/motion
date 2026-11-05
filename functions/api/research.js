@@ -18,11 +18,17 @@ const json = (b, s = 200) => new Response(JSON.stringify(b), { status: s, header
 const V = ['qualified', 'adjacent_supplier', 'not_a_fit', 'research_blocked', 'insufficient_evidence'];
 const host = (u) => String(u || '').toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
 
-async function judge(env, request, name, country, hint, pages, source) {
-  const body = pages.map((p, i) => `[page ${i + 1}] ${p.url}\n${p.text}`).join('\n\n').slice(0, 14000);
+// what we already know about the company (sent by Medint): our NetHunt notes and timeline, the 🧠 summary, imported lists, and the public
+// tender awards and device registrations matched to its name in this country — read FIRST, as [page 1] “our records”
+const OWN_URL = 'medint:records';
+const withOwn = (pages, own) => (own ? [ { url: OWN_URL, text: own }, ...pages ] : pages);
+async function judge(env, request, name, country, hint, pages0, source, own) {
+  const pages = withOwn(pages0, own);
+  const body = pages.map((p, i) => `[page ${i + 1}] ${p.url === OWN_URL ? 'OUR OWN RECORDS about this company (trusted: our CRM history and notes, public tender awards they won, devices registered to them)' : p.url}\n${p.text}`).join('\n\n').slice(0, 16000);
   const prompt = `You qualify B2B leads. We sell ORTHOPAEDIC IMPLANTS (trauma plates/screws/nails, spine, hip/knee/shoulder joint replacement, sports medicine) and want DISTRIBUTORS / IMPORTERS that sell to hospitals in ${country || 'their country'}.
 Company: "${name}"${country ? ` in ${country}` : ''}. Other information (unverified, do not use as evidence): ${hint || 'none'}.
-Below is ${source}. Judge ONLY from it.
+Below is ${own ? `[page 1] our own records about this company, then ${source}` : source}. Judge ONLY from it.${own ? `
+OUR OWN RECORDS count as evidence (they are about this exact company): public tender awards for trauma / spine / joint / arthroscopy / bone graft / orthopaedic items, registrations of orthopaedic implants, or our notes and emails showing they sell or buy orthopaedic products ⇒ the company IS in orthopaedics. Then answer qualified (a distributor, importer, dealer or supplier that sells to hospitals) — NOT adjacent_supplier — even if their website also shows other fields, unless it is a manufacturer / a global manufacturer's own branch (adjacent_supplier) or a hospital / clinic (not_a_fit). A quote from our records is a valid quote (page 1).` : ''}
 FIRST check identity: if this is clearly ANOTHER company (a different name, or the same name in another country), answer "wrong_company" — a page about somebody else says nothing about our company.
 - qualified = a distributor, importer or dealer whose text shows orthopaedic / trauma / spine / joint / surgical-implant products or brands.
 - adjacent_supplier = a medical distributor in another field (e.g. general hospital supplies, imaging, lab, dental), or an orthopaedic manufacturer/brand owner rather than a distributor — this includes a global manufacturer's own company in this country (Stryker, Zimmer Biomet, Johnson & Johnson / DePuy Synthes, Smith & Nephew, Medtronic, B. Braun / Aesculap, Arthrex, Globus, NuVasive, Enovis/DJO, MicroPort, Meril, Narang, GPC Medical, Auxein…): then role = "manufacturer_branch".
@@ -51,24 +57,37 @@ ${body}`;
 
 // 🔬 deep check (Lead research skill, second pass): an unsure company gets one more look from OTHER sources — its LinkedIn / Facebook company page,
 // catalogues, directories and registries — aimed at the one question still open. A firm “no” stands only when the identity is confirmed.
-async function deepCheck(env, request, name, country, hint, missing, site) {
+async function deepCheck(env, request, name, country, hint, missing, site, own) {
   const nm = String(name).replace(/\b(s\.?a\.?(s|c)?|s\.?r\.?l|ltda|llc|inc|ltd|gmbh|cia|e\.?i\.?r\.?l|s\.?a\.? de c\.?v)\.?$/i, '').trim();
   const qs = [ `"${nm}" ${country} linkedin`, `"${nm}" ${country} facebook`, `"${nm}" ${country} productos OR products OR catálogo OR catalog`, `"${nm}" ${country} distribuidor OR distributor OR importador OR importer` ];
   const key = (nm.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/\s+/).filter((w) => w.length > 3)[0]) || nm.toLowerCase();
   const seen = new Set(); const hits = []; const tried = [];
   for (const q of qs) { const r = await webSearch(env, q, 6); tried.push(`${q} → ${(r.organic || []).length}${r.error ? ` (${r.error})` : ''}`);
     (r.organic || []).forEach((x) => { const t = `${x.title || ''} ${x.snippet || ''} ${x.link || ''}`.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); if (!x.link || seen.has(x.link) || !t.includes(key)) return; seen.add(x.link); hits.push({ url: x.link, text: `${x.title || ''}\n${x.snippet || ''}` }); }); }
+  if (!hits.length && own) { const j0 = await judge(env, request, name, country, hint, [], 'no other source (nothing about this company found in search)', own); return { ...j0, verdict: j0.verdict === 'wrong_company' ? 'insufficient_evidence' : j0.verdict, pages: [ OWN_URL ], attempts: tried, deep: !0, website: site || '' }; }
   if (!hits.length) return { verdict: 'insufficient_evidence', reason: 'deep check: no other source about this company found', missing, pages: [], attempts: tried, deep: !0 };
   const pages = hits.slice(0, 12);
-  const j = await judge(env, request, name, country, `${hint || ''}${missing ? ` · still open: ${missing}` : ''}`, pages, `search results from other sources (LinkedIn / Facebook company pages, catalogues, directories, registries). Each [page] is one result's title and summary. Use only results clearly about this company in ${country || 'its country'}; resolve only what is still open: ${missing || 'what they sell and whether they distribute'}. A not_a_fit needs the identity confirmed`);
+  const j = await judge(env, request, name, country, `${hint || ''}${missing ? ` · still open: ${missing}` : ''}`, pages, `search results from other sources (LinkedIn / Facebook company pages, catalogues, directories, registries). Each [page] is one result's title and summary. Use only results clearly about this company in ${country || 'its country'}; resolve only what is still open: ${missing || 'what they sell and whether they distribute'}. A not_a_fit needs the identity confirmed`, own);
   return { ...j, verdict: j.verdict === 'wrong_company' ? 'insufficient_evidence' : j.verdict, pages: pages.map((p) => p.url), attempts: tried, deep: !0, website: site || '' };
 }
 
-export async function onRequestGet({ request, env }) {
+// GET with the address, or POST with the same names in a JSON body (POST carries `own` — our own records, which can be long — and `ortho`)
+export async function onRequestGet({ request, env }) { const u = new URL(request.url); return run(request, env, u.searchParams); }
+export async function onRequestPost({ request, env }) { let b = {}; try { b = await request.json(); } catch { /* empty */ } return run(request, env, { get: (k) => (b[k] == null ? null : String(b[k])) }); }
+// our records show ortho (an orthopaedic tender won, an orthopaedic device registered, our CRM says Ortho): the company is ortho — qualified,
+// not “adjacent supplier” or “unsure” (a manufacturer / its own branch, a hospital or a firm “not a fit” keep their verdict)
+function orthoWins(j, why) {
+  if (!why || !j || !j.verdict || /^(qualified|not_a_fit|wrong_company)$/.test(j.verdict)) return j;
+  if (j.verdict === 'adjacent_supplier' && /manufacturer/.test(j.role || '')) return j;
+  return { ...j, verdict: 'qualified', role: j.role && !/manufacturer|buyer/.test(j.role) ? j.role : 'distributor', reason: `ortho in our records: ${why}${j.reason ? ` (from the website alone: ${j.reason})` : ''}`.slice(0, 260), quote: why.slice(0, 240), quote_url: OWN_URL, missing: '', ortho_from: 'records', first_verdict: j.verdict };
+}
+async function run(request, env, sp) {
   { const q = await quota(request, env, 'qualify'); if (q) return q; }
-  const u = new URL(request.url);
+  const u = { searchParams: sp };
+  const own = (sp.get('own') || '').slice(0, 6000); const orthoWhy = (sp.get('ortho') || '').slice(0, 300);
+  const jsonV = (o, s) => json(o && o.verdict ? orthoWins(o, orthoWhy) : o, s);
   if (u.searchParams.get('deep') === '1') { const name = (u.searchParams.get('name') || '').trim().slice(0, 160); if (!name) return json({ error: 'name missing' }, 400);
-    try { return json(await deepCheck(env, request, name, (u.searchParams.get('country') || '').slice(0, 60), (u.searchParams.get('hint') || '').slice(0, 400), (u.searchParams.get('missing') || '').slice(0, 200), (u.searchParams.get('site') || '').slice(0, 200))); } catch (e) { return json({ error: `AI: ${e.message || e}` }); } } const given = (u.searchParams.get('site') || '').trim(); const name = (u.searchParams.get('name') || '').trim().slice(0, 160); const country = (u.searchParams.get('country') || '').trim().slice(0, 60); const hint = (u.searchParams.get('hint') || '').slice(0, 400);
+    try { return jsonV(await deepCheck(env, request, name, (u.searchParams.get('country') || '').slice(0, 60), (u.searchParams.get('hint') || '').slice(0, 400), (u.searchParams.get('missing') || '').slice(0, 200), (u.searchParams.get('site') || '').slice(0, 200), own)); } catch (e) { return json({ error: `AI: ${e.message || e}` }); } } const given = (u.searchParams.get('site') || '').trim(); const name = (u.searchParams.get('name') || '').trim().slice(0, 160); const country = (u.searchParams.get('country') || '').trim().slice(0, 60); const hint = (u.searchParams.get('hint') || '').slice(0, 400);
   if (!name) return json({ error: 'name missing' }, 400);
   const block = []; let disc = null; let site = given; let last = null;
   for (let round = 1; round <= 2; round++) {
@@ -79,17 +98,19 @@ export async function onRequestGet({ request, env }) {
         if (!rd.pages.length) { const bad = rd.reason || 'it did not open';
           // the website on file can't be read: once, look the company up by name (Richard's search) before giving up — the address on file is kept, nothing is overwritten
           if (!disc && round === 1 && name) { base.attempts.push(`website on file ${host(site)} did not open: ${bad}${rd.tried && rd.tried.length ? ` (tried ${rd.tried.length} addresses)` : ''} — searching by name`); block.push(host(site)); last = { ...base, siteError: bad, siteGiven: site }; site = ''; disc = null; continue; }
-          return json({ ...base, verdict: 'research_blocked', reason: `the website could not be opened — ${bad} (not a rejection)`, site_error: bad, website: site, pages: [] }); }
-        const j = await judge(env, request, name, country, hint, rd.pages, 'the text of their website');
+          return jsonV({ ...base, verdict: 'research_blocked', reason: `the website could not be opened — ${bad} (not a rejection)`, site_error: bad, website: site, pages: [] }); }
+        const j = await judge(env, request, name, country, hint, rd.pages, 'the text of their website', own);
         if (j.verdict === 'wrong_company' && round === 1) { base.attempts.push(`round 1: ${host(site)} is another company (“${j.reason}”) — blocked, searching once more`); block.push(host(site)); last = base; site = ''; disc = null; continue; }
-        if (j.verdict === 'wrong_company') return json({ ...base, verdict: 'insufficient_evidence', reason: `${host(site)} is another company — needs a person to check`, website: '', pages: rd.pages.map((p) => p.url) });
-        return json({ ...base, ...j, ...(last && last.siteError ? { site_error: last.siteError, site_given: last.siteGiven, reason: `${j.reason} (found by name — the website on file didn’t open: ${last.siteError})` } : {}), website: rd.pages[0].url, pages: rd.pages.map((p) => p.url) }); }
+        if (j.verdict === 'wrong_company') return jsonV({ ...base, verdict: 'insufficient_evidence', reason: `${host(site)} is another company — needs a person to check`, website: '', pages: rd.pages.map((p) => p.url) });
+        return jsonV({ ...base, ...j, ...(last && last.siteError ? { site_error: last.siteError, site_given: last.siteGiven, reason: `${j.reason} (found by name — the website on file didn’t open: ${last.siteError})` } : {}), website: rd.pages[0].url, pages: rd.pages.map((p) => p.url) }); }
       // no website: judge from the company's own LinkedIn / Facebook page as shown in search (Richard: the snippet stands in for a login wall)
       if (D.presence_url && /facebook|linkedin/.test(D.presence_kind)) { const r = (D.results || []).find((x) => x.link && x.link.startsWith(D.presence_url)) || {}; const t = `${r.title || ''}\n${r.snippet || ''}`.trim();
-        if (t.length > 40) { const j = await judge(env, request, name, country, hint, [{ url: D.presence_url, text: t }], `what their own ${D.presence_kind} page shows in search (title and summary)`);
-          if (j.verdict !== 'wrong_company') return json({ ...base, ...j, reason: `${j.reason} (from their ${D.presence_kind} page — no website)`, website: '', pages: [D.presence_url] }); } }
-      return json({ ...base, ...(last && last.siteError ? { site_error: last.siteError, site_given: last.siteGiven } : {}), verdict: 'research_blocked', reason: last && last.siteError ? `the website on file didn’t open (${last.siteError}) and no other website was found by name — not a rejection` : D.error ? D.error : D.presence_url ? `no website — ${D.presence_kind === 'listing' ? 'a listing names them with contact details' : `own ${D.presence_kind} page found`}` : 'no website or page of theirs found — not a rejection', website: '', pages: D.presence_url ? [D.presence_url] : [] });
-    } catch (e) { return json({ ...base, error: `AI: ${e.message || e}`, website: site }); }
+        if (t.length > 40) { const j = await judge(env, request, name, country, hint, [{ url: D.presence_url, text: t }], `what their own ${D.presence_kind} page shows in search (title and summary)`, own);
+          if (j.verdict !== 'wrong_company') return jsonV({ ...base, ...j, reason: `${j.reason} (from their ${D.presence_kind} page — no website)`, website: '', pages: [D.presence_url] }); } }
+      if (own.length > 60) { const j = await judge(env, request, name, country, hint, [], 'nothing from the web (no website of theirs could be found or read)', own);
+        if (/^(qualified|adjacent_supplier|not_a_fit)$/.test(j.verdict)) return jsonV({ ...base, ...j, reason: `${j.reason} (from our records — no website read)`, website: '', pages: [ OWN_URL ] }); }
+      return jsonV({ ...base, ...(last && last.siteError ? { site_error: last.siteError, site_given: last.siteGiven } : {}), verdict: 'research_blocked', reason: last && last.siteError ? `the website on file didn’t open (${last.siteError}) and no other website was found by name — not a rejection` : D.error ? D.error : D.presence_url ? `no website — ${D.presence_kind === 'listing' ? 'a listing names them with contact details' : `own ${D.presence_kind} page found`}` : 'no website or page of theirs found — not a rejection', website: '', pages: D.presence_url ? [D.presence_url] : [] });
+    } catch (e) { return jsonV({ ...base, error: `AI: ${e.message || e}`, website: site }); }
   }
-  return json({ verdict: 'research_blocked', reason: 'nothing found', pages: [] });
+  return jsonV({ verdict: 'research_blocked', reason: 'nothing found', pages: [] });
 }

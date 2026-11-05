@@ -1,11 +1,12 @@
 import { quota } from '../_lib/quota.js';
 import { webSearch } from '../_lib/search.js';
 import { discover } from '../_lib/discover.js';
+import { bdPage, bdSearchOn, bdReader } from '../_lib/brightdata.js';
 /**
  * Find a company's missing details on the internet (website only).
  *   GET /api/enrich?site=https://…&q=company+city+country
- * Reads the company website (home + contact / about pages) and, when a Brave Search key is set (BRAVE_API_KEY),
- * the top web results for the company. Returns what it found — emails, phones, WhatsApp, social links, address —
+ * Reads the company website (home + contact / about pages; Bright Data's Web Unlocker when a site blocks us) and Google
+ * through Bright Data's SERP zone for the company. Returns what it found — emails, phones, WhatsApp, social links, address —
  * each with where it was seen. Nothing is saved here: the person chooses what to add.
  */
 const json = (b, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { 'content-type': 'application/json', 'cache-control': 'private, max-age=3600' } });
@@ -16,16 +17,16 @@ const CHALLENGE = /just a moment|access denied|attention required|verify you are
 export function cleanSite(v) { const s = String(v || '').trim().replace(/^(https?)\/\//i, '$1://').replace(/^(https?):\/(?!\/)/i, '$1://'); const m = s.match(/(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^\s,;|]*)?/i); if (!m) return ''; let u = m[0].replace(/[.,;:)]+$/, ''); if (!/^https?:\/\//i.test(u)) u = `https://${u}`; try { const x = new URL(u); return `${x.protocol}//${x.host.toLowerCase()}${x.pathname === '/' ? '/' : x.pathname}${x.search}`; } catch { return ''; } }
 // why a page didn't open, in words a person can act on
 const why = (e) => { const m = String((e && (e.message || e.name)) || e || ''); return /timeout|timed out|abort/i.test(m) ? 'it did not answer in time' : /dns|enotfound|getaddrinfo|resolve|name not/i.test(m) ? 'the address does not exist (domain not found)' : /certificate|ssl|tls|handshake/i.test(m) ? 'its security certificate is broken' : /refused|reset|econn|network|fetch failed|internal error/i.test(m) ? 'the server refused the connection' : m.slice(0, 80) || 'unknown error'; };
-// a page that won't open directly is read through Firecrawl (FIRECRAWL_API_KEY) or Bright Data Web Unlocker (BRIGHTDATA_API_KEY + BRIGHTDATA_ZONE)
+// a page that won't open directly is read through Bright Data's Web Unlocker (BRIGHTDATA_API_KEY + BRIGHTDATA_ZONE)
 let ENV = {};
-async function pageVia(url) { try { if (ENV.FIRECRAWL_API_KEY) { const r = await fetch('https://api.firecrawl.dev/v1/scrape', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${ENV.FIRECRAWL_API_KEY}` }, body: JSON.stringify({ url, formats: ['rawHtml'], onlyMainContent: false, timeout: 20000 }), signal: AbortSignal.timeout(25000) }); const d = await r.json().catch(() => ({})); const h = d.data && (d.data.rawHtml || d.data.html); if (h) return { url: (d.data.metadata && d.data.metadata.sourceURL) || url, html: String(h).slice(0, 600000), via: 'Firecrawl' }; } } catch { /* next */ }
-  try { if (ENV.BRIGHTDATA_API_KEY && ENV.BRIGHTDATA_ZONE) { const r = await fetch('https://api.brightdata.com/request', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${ENV.BRIGHTDATA_API_KEY}` }, body: JSON.stringify({ zone: ENV.BRIGHTDATA_ZONE, url, format: 'raw' }), signal: AbortSignal.timeout(25000) }); if (r.ok) { const h = await r.text(); if (/<html|<body|<div/i.test(h)) return { url, html: h.slice(0, 600000), via: 'Bright Data' }; } } } catch { /* none */ } return null; }
+async function pageVia(url, F) { const why0 = []; const p = await bdPage(ENV, url, { fails: why0 }); if (!p && why0.length && F) F.push({ url, why: why0[0] }); return p; }
 // open a page: the address as given, then https / http and with / without www (the home page only), then a reader service.
 // Returns the page, or null — and the reason is kept in fails (the last one is shown to the person).
 async function page(url, deep, fails) { const F = fails || []; const tries = [ url ];
   if (deep) { try { const u = new URL(url); const h = u.host; const alt = h.startsWith('www.') ? h.slice(4) : `www.${h}`; [ `https://${h}/`, `http://${h}/`, `https://${alt}/`, `http://${alt}/` ].forEach((x) => tries.includes(x) || tries.push(x)); } catch { /* bad address */ } }
   for (const t of tries.slice(0, 5)) { const p = await page0(t, F); if (p) return p; }
-  if (!deep) return null; const v = await pageVia(url); if (v) return v; return null; }
+  // the home page always gets a second chance through Bright Data; other pages (contact, about…) only when the site blocked us
+  const last = F[F.length - 1]; if (!deep && !(last && /blocked|robot check|did not answer/.test(last.why || ''))) return null; return pageVia(url, F); }
 async function page0(url, fails) { const F = fails || [];
   try { const r = await fetch(url, { headers: UA, redirect: 'follow', signal: AbortSignal.timeout(10000) });
     if (!r.ok) { F.push({ url, why: r.status === 403 || r.status === 401 || r.status === 429 ? `the site blocked automatic reading (HTTP ${r.status})` : r.status === 404 ? 'page not found (HTTP 404)' : r.status >= 500 ? `the site is down (HTTP ${r.status})` : `HTTP ${r.status}` }); return null; }
@@ -64,7 +65,7 @@ export async function onRequestGet({ request, env }) {
     const fails = []; const home = await page(site, !0, fails);
     if (!home) { out.siteError = fails.length ? fails[0].why : 'it did not open'; out.siteTried = fails.map((f) => `${f.url} → ${f.why}`);
       // the website on file can't be read: look the company up by name (Richard's search) — reported as a suggestion, NetHunt is not changed
-      if (!disc && raw && (env.SERPER_API_KEY || env.FIRECRAWL_API_KEY || (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_SERP_ZONE))) { const d2 = await discover(env, raw, ctry || '', { block: [ new URL(site).host.replace(/^www\./, '') ] }); out.searched = true; out.via = d2.via; if (d2.error) out.searchError = d2.error; out.fallback = 'name';
+      if (!disc && raw && bdSearchOn(env)) { const d2 = await discover(env, raw, ctry || '', { block: [ new URL(site).host.replace(/^www\./, '') ] }); out.searched = true; out.via = d2.via; if (d2.error) out.searchError = d2.error; out.fallback = 'name';
         const add = (kind, value, source, extra = {}) => { const v = String(value || '').trim(); if (!v) return; const k = `${kind}|${v.toLowerCase()}`; if (out.seen.has(k)) return; out.seen.add(k); out.items.push({ kind, value: v, source, ...extra }); };
         d2.website && add('website', d2.website, `found by name — the website on file didn’t open (${out.siteError})`, { ownership: d2.website_ownership }); [ 'linkedin', 'facebook', 'instagram' ].forEach((k) => d2[k] && add(k, d2[k], 'web search'));
         if (d2.presence_url) { add('presence', d2.presence_url, d2.presence_kind); d2.presence_phone && add('phone', d2.presence_phone, d2.presence_url); d2.presence_email && add('email', d2.presence_email, d2.presence_url); }
@@ -73,7 +74,7 @@ export async function onRequestGet({ request, env }) {
       const base = new URL(home.url); const links = [...new Set((home.html.match(/href=["']([^"'#]+)["']/gi) || []).map((h) => h.slice(6, -1)).filter((h) => /contact|contacto|contato|kontakt|iletisim|about|nosotros|quienes|empresa|sucursal|ubicaci/i.test(h)).map((h) => { try { return new URL(h, base).href; } catch { return null; } }).filter((h) => h && new URL(h).host === base.host))].slice(0, 3);
       for (const l of links) { const p = await page(l); if (p) { out.pages.push(p.url); extract(p, out); } } }
   }
-  if (!disc && q && (env.SERPER_API_KEY || env.FIRECRAWL_API_KEY || (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_SERP_ZONE))) { // (Bright Data search too — Richard's engine)
+  if (!disc && q && bdSearchOn(env)) { // (Bright Data search too — Richard's engine)
     out.searched = true;
     try { const sr = await webSearch(env, q, 8); out.via = sr.via; if (sr.error) out.searchError = sr.error; const j = { organic: sr.organic, knowledgeGraph: sr.kg };
       const kg = j.knowledgeGraph || {}; const at = kg.attributes || {}; const add = (kind, value, extra = {}) => { const v = String(value || '').trim(); if (!v) return; const k = `${kind}|${v.toLowerCase()}`; if (out.seen.has(k)) return; out.seen.add(k); out.items.push({ kind, value: v, source: 'Google', ...extra }); };
@@ -84,14 +85,7 @@ export async function onRequestGet({ request, env }) {
       const web = out.items.find((x) => x.kind === 'website'); if (web && !site) { const home = await page(web.value, !0); if (home) { out.pages.push(home.url); extract(home, out); const base = new URL(home.url); const links = [...new Set((home.html.match(/href=["']([^"'#]+)["']/gi) || []).map((h) => h.slice(6, -1)).filter((h) => /contact|contacto|contato|kontakt|iletisim|about|nosotros|quienes|empresa/i.test(h)).map((h) => { try { return new URL(h, base).href; } catch { return null; } }).filter((h) => h && new URL(h).host === base.host))].slice(0, 2); for (const l of links) { const p = await page(l); if (p) { out.pages.push(p.url); extract(p, out); } } } }
     } catch { /* search optional */ }
   }
-  if (!disc && q && env.BRAVE_API_KEY && !env.SERPER_API_KEY && !env.FIRECRAWL_API_KEY) {
-    out.searched = true;
-    try { const r = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=6`, { headers: { 'X-Subscription-Token': env.BRAVE_API_KEY, accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
-      if (r.ok) { const j = await r.json(); const res = ((j.web && j.web.results) || []).slice(0, 6);
-        res.forEach((x) => { out.items.push({ kind: 'result', value: x.title, url: x.url, snippet: String(x.description || '').replace(/<[^>]+>/g, '').slice(0, 220), source: x.url }); const t = `${x.title} ${x.description || ''}`; extract({ url: x.url, html: t }, out); });
-        for (const x of res.slice(0, 2)) { if (/facebook\.com|linkedin\.com|instagram\.com/.test(x.url)) continue; const p = await page(x.url); if (p) { out.pages.push(p.url); extract(p, out); } } } } catch { /* search optional */ }
-  }
-  return json({ items: out.items.slice(0, 60), pages: out.pages, site: site || '', site_error: out.siteError || '', site_tried: out.siteTried || [], fallback: out.fallback || '', searched: out.searched, search_ready: !!(env.BRAVE_API_KEY || env.SERPER_API_KEY || env.FIRECRAWL_API_KEY || (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_SERP_ZONE)), attempts: disc ? disc.attempts : [], ownership: disc ? disc.website_ownership : '', search_error: out.searchError || '', readers: [env.FIRECRAWL_API_KEY && 'Firecrawl', env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE && 'Bright Data'].filter(Boolean) });
+  return json({ items: out.items.slice(0, 60), pages: out.pages, site: site || '', site_error: out.siteError || '', site_tried: out.siteTried || [], fallback: out.fallback || '', searched: out.searched, search_ready: bdSearchOn(env), attempts: disc ? disc.attempts : [], ownership: disc ? disc.website_ownership : '', search_error: out.searchError || '', readers: [bdReader(env) && 'Bright Data'].filter(Boolean) });
 }
 
 // used by /api/research: read a company's site (home + contact/about/products pages) as plain text, with the page each part came from

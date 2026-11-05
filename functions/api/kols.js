@@ -1,5 +1,6 @@
 import { quota } from '../_lib/quota.js';
 import { webSearch } from '../_lib/search.js';
+import { bdPage, bdSearchOn } from '../_lib/brightdata.js';
 import { onRequestPost as ai } from './summarize.js';
 /**
  * 🩺 KOL finder — surgeons of one specialty in one country, from the open web.
@@ -14,8 +15,7 @@ const SKIP = /facebook|instagram|youtube|tiktok|twitter|x\.com|pinterest|wikiped
 const txt = (h) => String(h || '').replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<nav[\s\S]*?<\/nav>/gi, ' ').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&#160;/g, ' ').replace(/&amp;/g, '&').replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').trim();
 const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 async function page(env, url) { try { const r = await fetch(url, { headers: UA, redirect: 'follow', signal: AbortSignal.timeout(9000) }); if (r.ok && /html/i.test(r.headers.get('content-type') || '')) { const t = txt((await r.text()).slice(0, 500000)); if (t.length > 300) return t; } } catch { /* reader */ }
-  try { if (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_ZONE) { const r = await fetch('https://api.brightdata.com/request', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${env.BRIGHTDATA_API_KEY}` }, body: JSON.stringify({ zone: env.BRIGHTDATA_ZONE, url, format: 'raw' }), signal: AbortSignal.timeout(25000) }); if (r.ok) { const t = txt((await r.text()).slice(0, 500000)); if (t.length > 300) return t; } } } catch { /* none */ }
-  try { if (env.FIRECRAWL_API_KEY) { const r = await fetch('https://api.firecrawl.dev/v1/scrape', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${env.FIRECRAWL_API_KEY}` }, body: JSON.stringify({ url, formats: ['markdown'] }), signal: AbortSignal.timeout(25000) }); const j = await r.json().catch(() => ({})); const t = j.data && j.data.markdown; if (r.ok && t && t.length > 300) return String(t).slice(0, 200000); } } catch { /* none */ }
+  try { const p = await bdPage(env, url, { max: 500000 }); if (p) { const t = txt(p.html); if (t.length > 300) return t; } } catch { /* none */ }
   return ''; }
 const Q = { // how surgeons are named in each language — [specialist words, society / congress words]
   es: ['cirujano', 'sociedad junta directiva', 'congreso profesores', 'hospital médicos staff'], pt: ['cirurgião', 'sociedade diretoria', 'congresso palestrantes', 'hospital corpo clínico'],
@@ -25,7 +25,7 @@ export async function onRequestPost({ request, env }) {
   const b = await request.json().catch(() => ({})); const iso = String(b.iso || '').toUpperCase().slice(0, 2); const country = String(b.country || '').slice(0, 60); const sp = b.specialty || {};
   const W = sp.words && typeof sp.words === 'object' && !Array.isArray(sp.words) ? sp.words : { en: [].concat(sp.words || []) }; const words = [...new Set(Object.values(W).flat().map(String).filter(Boolean))].slice(0, 12); if (!country || !words.length) return json({ error: 'country and specialty words needed' }, 400);
   const langs = [...new Set([].concat(b.langs || []).filter((l) => Q[l]).concat('en'))].slice(0, 2); const exclude = new Set([].concat(b.exclude || []).map(norm));
-  if (!(env.SERPER_API_KEY || env.FIRECRAWL_API_KEY || (env.BRIGHTDATA_API_KEY && env.BRIGHTDATA_SERP_ZONE))) return json({ error: 'web search isn’t set up (SERPER_API_KEY, FIRECRAWL_API_KEY or BRIGHTDATA_SERP_ZONE)' }, 501);
+  if (!bdSearchOn(env)) return json({ error: 'web search isn’t set up (BRIGHTDATA_API_KEY + BRIGHTDATA_SERP_ZONE)' }, 501);
   // searches: the specialty society's board, congress faculty, hospital specialists, AO / international faculty — in the country's language and English
   const qs = []; for (const l of langs) { const L0 = [].concat(W[l] || W.en || words); const w = L0[0], w2 = L0[1] || L0[0]; qs.push(`"${w2}" ${country} ${Q[l][1]}`, `${w} ${country} ${Q[l][2]}`, `${w} ${country} ${Q[l][3]}`); }
   sp.extra && qs.push(`${sp.extra} ${country}`);
