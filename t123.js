@@ -7,7 +7,7 @@ const { run } = require('./harness');
   // pick: one clinic (free drop), three to research
   const clinic = { key: 'test|clinica', name: 'Clínica San Felipe SAC' }; const pick = L.filter((e) => !/cl[ií]nica|hospital|farmac/i.test(e.name) && [ 'ortho', 'maybe' ].includes(X.qlRulesX(e)[0]) && !(X.leadMatchX && X.leadMatchX(e, 'CO'))).slice(0, 3);
   const verdicts = [ 'qualified', 'insufficient_evidence', 'not_a_fit' ]; const calls = { research: 0, deep: 0, leads: 0, verify: 0 };
-  const of = W.fetch; W.fetch = async (u, o = {}) => { u = String(u);
+  const of = W.fetch; W.fetch = async (u, o = {}) => { u = String(u); if (String(u) === '/api/research' && o && o.body) u = '/api/research?' + Object.entries(JSON.parse(o.body)).filter(([k]) => k !== 'own').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&'); /* POST → the same names as an address */
     if (u.startsWith('/api/research')) { const deep = /deep=1/.test(u); deep ? calls.deep++ : calls.research++; const nm = decodeURIComponent((u.match(/name=([^&]*)/) || [])[1] || ''); const i = pick.findIndex((e) => e.name === nm);
       return J(deep ? { verdict: 'adjacent_supplier', reason: 'sells lab equipment' } : { verdict: verdicts[i] || 'insufficient_evidence', reason: `test ${i}`, website: i === 0 ? 'https://ortomed-test.co' : '', quote: i === 0 ? 'Distribuidor de implantes ortopédicos' : '', quote_url: i === 0 ? 'https://ortomed-test.co/nosotros' : '' }); }
     if (u.startsWith('/api/leads') && (o.method || 'GET') === 'POST') { calls.verify++; const b = JSON.parse(o.body || '{}'); return J({ results: (b.emails || []).map((em) => ({ email: em, state: 'deliverable' })) }); }

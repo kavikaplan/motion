@@ -38,8 +38,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   if (!asked.length || !C.waKnown.size) bad.push('auto check');
   const [ y, nn ] = [ ...C.waKnown.entries() ].reduce((a, [k, v]) => { a[v ? 0 : 1] = a[v ? 0 : 1] || k; return a; }, []);
   console.log('waOk — checked yes:', y && C.waOk(`+${y}`), '| checked no:', nn && C.waOk(`+${nn}`)); if ((y && !C.waOk(`+${y}`)) || (nn && C.waOk(`+${nn}`))) bad.push('answer decides');
+  if (y) { const a0 = D.createElement('a'); a0.href = `https://wa.me/${y}`; a0.title = 'WhatsApp'; D.body.append(a0); await wait(1700); console.log('✓ dot on a checked WhatsApp button:', a0.classList.contains('cm-waok'), '|', a0.title); if (!a0.classList.contains('cm-waok')) bad.push('checked mark'); }
   C.waKnown.clear(); C.waKnown.set('56221234567', !0); console.log('a Chilean landline checked as WhatsApp:', C.waOk('+56 2 2123 4567')); if (!C.waOk('+56 2 2123 4567')) bad.push('checked beats the guess'); C.waKnown.clear();
-  const b1 = D.querySelector('.cm-waall'); console.log('Best partners button:', b1 && b1.textContent, '|', b1 && b1.title.slice(0, 80)); if (!b1) bad.push('check all button');
+  for (let k = 0; k < 30 && !D.querySelector('.cm-waall'); k++) { await wait(100); k % 5 === 4 && C.drawPartners && C.drawPartners(); } const b1 = D.querySelector('.cm-waall'); console.log('Best partners button:', b1 && b1.textContent, '|', b1 && b1.title.slice(0, 80)); if (!b1) bad.push('check all button');
   if (b1 && !b1.disabled) { const before = wa.length; b1.click(); await wait(400); await h.settle(); console.log('after 🟢 Check WhatsApp: calls', wa.length - before, '| button now:', (D.querySelector('.cm-waall') || {}).textContent, '| toast:', (D.getElementById('cm-toast') || {}).textContent); if (wa.length === before) bad.push('check all'); }
   waMode = 'off'; C.waKnown.clear(); const n2 = W.__cm3.waCheck([ '+56 9 8765 4321' ], !0); await wait(300); await h.settle(); W.__cm3.waCheck([ '+56 9 8765 4322' ], !0); await wait(100);
   const tw = (D.getElementById('cm-toast') || {}).textContent || ''; console.log('not set up →', tw.slice(0, 100)); if (!/APIFY_TOKEN/.test(tw)) bad.push('not set up note');

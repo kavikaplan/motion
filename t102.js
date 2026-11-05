@@ -1,10 +1,10 @@
 // Richard's website discovery (functions/_lib/discover.js) and research round 2, with faked search results and pages
 (async () => { const P = require('path'); const { discover } = await import(P.join(__dirname, '../functions/_lib/discover.js')); const { onRequestGet } = await import(P.join(__dirname, '../functions/api/research.js'));
   let SERP = {}, PAGES = {}; const pad = ' lorem ipsum '.repeat(30); const bad = [];
-  global.fetch = async (url, o = {}) => { url = String(url); if (url.includes('serper')) return new Response(JSON.stringify({ organic: SERP[JSON.parse(o.body).q] || [] }), { status: 200 });
+  global.fetch = async (url, o = {}) => { url = String(url); if (url.includes('api.brightdata.com/request')) return new Response(JSON.stringify({ organic: SERP[decodeURIComponent((String(JSON.parse(o.body).url).match(/[?&]q=([^&]+)/) || [])[1] || '')] || [] }), { status: 200 });
     if (url.includes('anthropic')) { const t = JSON.stringify(JSON.parse(o.body)); const ans = /Buenos Aires Argentina/.test(t) ? { verdict: 'wrong_company', reason: 'namesake' } : { verdict: 'qualified', role: 'distributor', brands: ['Stryker'], reason: 'trauma implants', quote: 'distribuidor de implantes de trauma', page: 1 }; return new Response(JSON.stringify({ content: [{ type: 'text', text: JSON.stringify(ans) }] }), { status: 200 }); }
     const h = url.replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, ''); return PAGES[h] ? new Response(PAGES[h], { status: 200, headers: { 'content-type': 'text/html' } }) : new Response('no', { status: 404 }); };
-  const env = { SERPER_API_KEY: 'x', ANTHROPIC_API_KEY: 'k' };
+  const env = { BRIGHTDATA_API_KEY: 'b', BRIGHTDATA_SERP_ZONE: 'serp', ANTHROPIC_API_KEY: 'k' };
   SERP = { 'ENDO MEDICA INVERSIONES S.A.C.': [{ title: 'Endo Medica - Inicio', link: 'https://endomedica.com.pe/' }], '"ENDO MEDICA INVERSIONES" Peru': [{ title: 'ENDO MEDICA - universidadperu', link: 'https://www.universidadperu.com/x' }] }; PAGES = { 'endomedica.com.pe': `<title>Endo Medica</title><body>Endo Medica Inversiones Lima Perú ${pad}</body>` };
   let d = await discover(env, 'ENDO MEDICA INVERSIONES S.A.C.', 'Peru', { instagram: false }); if (d.website !== 'https://endomedica.com.pe') bad.push(`plain search: ${d.website}`);
   SERP = { 'MEDICLINE LLP': [{ title: 'Medicline', link: 'https://medicline.hr/' }] }; PAGES = { 'medicline.hr': `<title>Medicline</title><body>Medicline Zagreb Croatia ${pad}</body>` };

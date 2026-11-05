@@ -28,7 +28,7 @@ const { run } = require('./harness');
       const cm = h.calls.filter((c) => c[0] === 'nh' && c[1] === 'create_record_comment' && c[2].recordId === r0.id).pop(); console.log('NetHunt comment:', cm && cm[2].text); if (!cm || !new RegExp(`set to ${want}`).test(cm[2].text) || !/spine only/.test(cm[2].text) || !/Big tender winner/.test(cm[2].text)) bad.push('comment'); r0[`score_${p}`] !== want && bad.push('saved value'); }
     a.remove();
     // Power hour: 🎯 next to the weather in the title
-    W.__cm2.openPowerHour(D.body, r0.id); await wait(1200); await h.settle(); const ttl = D.getElementById('cm-sheet-title'); const mini = ttl.querySelector('.cm-scmini'); console.log('PH title:', ttl.textContent.replace(/\s+/g, ' ').slice(0, 120), '| mini:', mini && mini.textContent);
+    W.__cm2.openPowerHour(D.body, r0.id); await wait(1200); await h.settle(); const ttl = D.getElementById('cm-sheet-title'); for (let k = 0; k < 30 && !ttl.querySelector('.cm-scmini'); k++) await wait(100); const mini = ttl.querySelector('.cm-scmini'); console.log('PH title:', ttl.textContent.replace(/\s+/g, ' ').slice(0, 120), '| mini:', mini && mini.textContent);
     if (/^⚡/.test(ttl.textContent) && D.querySelectorAll('#cm-sheet .cm-phwho').length === 1 && D.querySelector('#cm-sheet .cm-phwho .cm-co').dataset.openCompany === r0.id && !mini) bad.push('PH mini score');
     if (mini) { mini.click(); await h.settle(); const pn = D.querySelector('#cm-sheet .cm-scpan'); console.log('PH editor inline, PH open:', !!pn, /⚡/.test(D.getElementById('cm-sheet-title').textContent)); pn || bad.push('PH editor'); }
     C.closeSheet(); X.SCO.set(`${r0.id}|${p}`, { ...X.SCO.get(`${r0.id}|${p}`), off: 1 }); X.scoApply(); }

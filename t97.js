@@ -2,7 +2,7 @@
 const { run } = require('./harness');
 (async () => { const h = run({ site: true, params: { view: 'home' } }); await h.settle(); await new Promise((r) => setTimeout(r, 2000));
   const W = h.w, D = h.d; const calls = h.calls; const of = W.fetch;
-  W.fetch = async (u, o = {}) => { u = String(u);
+  W.fetch = async (u, o = {}) => { u = String(u); if (String(u) === '/api/research' && o && o.body) u = '/api/research?' + Object.entries(JSON.parse(o.body)).filter(([k]) => k !== 'own').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&'); /* POST → the same names as an address */
     if (u.startsWith('/api/research')) { calls.push(['fetch', u]); return new Response(JSON.stringify({ verdict: 'qualified', role: 'distributor', segments: ['trauma'], reason: 'Distributor of trauma implants', quote: 'Somos distribuidores de implantes de trauma', quote_url: 'https://x.pa', website: 'https://x.pa', pages: ['https://x.pa'] })); }
     if (u.startsWith('/api/leads') && (o.method || 'GET') === 'GET') return new Response(JSON.stringify({ people: [{ source: 'Apollo', id: 'a1', name: 'Ana Pérez', title: 'Gerente General', email: 'ana@x.pa' }, { source: 'Snov', hash: 'h', name: 'Luis Gómez', title: 'Analyst', email: '' , canReveal: true }], emails: ['info@x.pa'], company: { employees: 40, industry: 'Medical devices' } }));
     if (u.startsWith('/api/leads')) { const b = JSON.parse(o.body); if (b.action === 'verify') return new Response(JSON.stringify({ results: b.emails.map((m, i) => ({ email: m, state: ['deliverable', 'risky', 'undeliverable'][i % 3], detail: 'test' })) })); }

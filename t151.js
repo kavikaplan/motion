@@ -1,0 +1,21 @@
+// Power hour: ↶ Undo only 2.5 s (then Skip again, without redrawing) · 🕑 last contact sits in the status / category line · the build stamp
+const { run } = require('./harness');
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => { const bad = [];
+  const h = run({ site: true, params: { view: 'country', iso: 'CL', tags: [ 'chile' ], ctab: 'companies', csub: 'partners', ours: 'dunitech', psort: 'next' } }); await h.settle(); await wait(2500); await h.settle(); const D = h.d;
+  const loaded = async () => { await h.settle(); for (let k = 0; k < 40 && D.querySelector('#cm-sheet .cm-phload'); k++) await h.settle(150); await wait(150); };
+  D.querySelector('.cm-phbtn').click(); await loaded();
+  const cid = h.w.dash.params().cid; console.log('last contact of this company:', JSON.stringify(h.w.__cm.realContact(cid) || null).slice(0, 120));
+  for (let k = 0; k < 20 && !D.querySelector('#cm-sheet .cm-phmeta .cm-phlc'); k++) await wait(100);
+  const meta = D.querySelector('#cm-sheet .cm-phmeta'); const lc = meta && meta.querySelector('.cm-phlc');
+  console.log('status line:', meta && [ ...meta.childNodes ].filter((n) => n.nodeName !== 'SELECT').map((n) => n.textContent).join('').replace(/\s+/g, ' ').trim(), '| 🕑 in it:', !!lc, '| selects in it:', meta ? meta.querySelectorAll('select').length : 0);
+  if (!lc || !/^🕑/.test(lc.textContent) || /last contact/.test(meta.textContent) || !meta.querySelector('select.cm-phcat')) bad.push('last contact on the status line');
+  const skip = () => D.querySelector('#cm-sheet .cm-phskip'); skip().click(); const tClick = Date.now(); await loaded();
+  console.log('right after Skip:', skip().textContent); if (skip().textContent !== '↶ Undo') bad.push('undo shown');
+  await wait(Math.max(0, 1800 - (Date.now() - tClick))); const el18 = Date.now() - tClick; console.log(`after ${(el18 / 1000).toFixed(1)} s:`, skip().textContent); if (el18 < 2300 && skip().textContent !== '↶ Undo') bad.push('undo too short');
+  await wait(Math.max(0, 2800 - (Date.now() - tClick))); console.log('after 2.8 s:', skip().textContent); if (skip().textContent !== 'Skip') bad.push('undo goes after 2.5 s');
+  const who0 = (D.querySelector('#cm-sheet .cm-phwho .cm-co') || {}).textContent; skip().click(); await loaded(); const who1 = (D.querySelector('#cm-sheet .cm-phwho .cm-co') || {}).textContent;
+  console.log('Skip after it went back to Skip → next company:', who0 !== who1); if (who0 === who1) bad.push('skip after undo time');
+  const pb = require('fs').readdirSync(__dirname + '/../public').find((f) => /^app\.[0-9a-f]+\.js$/.test(f)); const stamp = (require('fs').readFileSync(__dirname + '/../public/' + pb, 'utf8').match(/20\d\d-\d\d-\d\d·[0-9a-f]{4}/) || [])[0];
+  console.log('build stamp in the site:', stamp); if (!stamp) bad.push('build stamp');
+  console.log(`errors ${bad.length + h.errors.length}`, bad.join(', '), h.errors.slice(0, 2).join(' | ')); process.exit(0); })();

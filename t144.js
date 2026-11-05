@@ -7,11 +7,11 @@ const P = require('path');
   const pageHtml = '<html><head><title>SECEC 2027 Congress</title></head><body><h1>SECEC 2027</h1><p>The congress welcomed more than 2,400 participants from 70 countries in 2025.</p><p>Industry exhibition: 85 exhibitors. Booth space EUR 650 per sqm.</p><a href="/exhibition">Exhibition</a></body></html>';
   global.fetch = async (u, o = {}) => { u = String(u);
     if (u.startsWith('https://secec.org')) return new Response(pageHtml, { headers: { 'content-type': 'text/html' } });
-    if (u.startsWith('https://google.serper.dev')) return J({ organic: [] });
+    if (u.startsWith('https://api.brightdata.com/request')) return J({ organic: [] });
     if (u.startsWith('https://api.anthropic.com')) return J({ content: [ { type: 'text', text: JSON.stringify({ participants: { value: 2400, year: 2025, quote: 'more than 2,400 participants from 70 countries', page: 1 }, countries: { value: 70, quote: 'more than 2,400 participants from 70 countries', page: 1 }, exhibitors: { value: 85, quote: 'Industry exhibition: 85 exhibitors', page: 1 }, visitors: { value: 9000, quote: '9,000 trade visitors every year', page: 1 }, booth: { price: 650, currency: 'EUR', unit: 'per sqm', quote: 'Booth space EUR 650 per sqm', page: 1 }, exhibition: { value: 'yes', quote: 'Industry exhibition: 85 exhibitors', page: 1 }, specialties: [ 'shoulder', 'elbow' ], audience: 'shoulder and elbow surgeons' }) } ] });
     throw new TypeError('fetch failed ENOTFOUND'); };
   const ES = await import(P.join(__dirname, '../functions/api/eventsize.js'));
-  const r = await (await ES.onRequestGet({ request: new Request('https://m/api/eventsize?name=SECEC%202027&url=https://secec.org&year=2027', { headers: { 'cf-access-authenticated-user-email': 'hi@kavikaplan.com' } }), env: { SERPER_API_KEY: 'k', ANTHROPIC_API_KEY: 'a' } })).json();
+  const r = await (await ES.onRequestGet({ request: new Request('https://m/api/eventsize?name=SECEC%202027&url=https://secec.org&year=2027', { headers: { 'cf-access-authenticated-user-email': 'hi@kavikaplan.com' } }), env: { BRIGHTDATA_API_KEY: 'b', BRIGHTDATA_SERP_ZONE: 'serp', ANTHROPIC_API_KEY: 'a' } })).json();
   const F = r.facts || {}; console.log('server facts:', Object.entries(F).map(([k, v]) => `${k}=${v.value || v.price}${v.verified ? '✓' : '⚠'}`).join(' '), '| audience:', r.audience);
   if (!(F.participants && F.participants.verified && F.participants.value === 2400) || !(F.exhibitors && F.exhibitors.verified) || !(F.visitors && !F.visitors.verified) || !(F.booth && F.booth.verified && F.booth.unit === 'per m2') || !(F.exhibition && F.exhibition.value === 'yes')) bad.push('server facts');
   // ---- app

@@ -7,7 +7,7 @@ const P = require('path');
   const H = (html, s = 200, ct = 'text/html; charset=utf-8') => new Response(html, { status: s, headers: { 'content-type': ct } });
   const page = (title, body) => `<html><head><title>${title}</title></head><body><h1>${title}</h1><p>${body}</p><p>${title} est une entreprise de distribution de dispositifs médicaux. Nous travaillons avec les hôpitaux publics et les cliniques privées depuis 1998, avec une équipe commerciale et un service après-vente.</p><a href="/contacto">Contacto</a></body></html>`;
   global.fetch = async (u, o = {}) => { u = String(u); calls.push(u);
-    if (u.startsWith('https://google.serper.dev')) { const q = JSON.parse(o.body).q; (mode.searches = mode.searches || []).push(q); return J({ organic: (mode.serp || (() => []))(q) }); }
+    if (u.startsWith('https://api.brightdata.com/request')) { const q = decodeURIComponent((String(JSON.parse(o.body).url).match(/[?&]q=([^&]+)/) || [])[1] || ''); (mode.searches = mode.searches || []).push(q); return J({ organic: (mode.serp || (() => []))(q) }); }
     if (u.startsWith('https://api.snov.io/v1/oauth')) return J({ access_token: 'tk', expires_in: 3600 });
     if (u.startsWith('https://api.snov.io/v2/')) { mode.snov = (mode.snov || 0) + 1; return mode.snovOk ? J({ task_hash: 'h1' }) : J({ success: false, message: 'You don’t have enough credits to perform this action' }, 402); }
     if (u.startsWith('https://api.apollo.io')) { mode.apollo = (mode.apollo || 0) + 1; return J(/mixed_companies/.test(u) ? { organizations: [] } : /people/.test(u) ? { people: [ { id: 'a1', first_name: 'Ana', last_name: 'Ruiz', title: 'Gerente' } ] } : { organization: { name: 'Biomed Tunis', website_url: 'http://biomedtunis.tn' } }); }
@@ -28,7 +28,7 @@ const P = require('path');
   // enrich: the site on file is dead → reason + Richard's search by name finds the real one (suggested, NetHunt untouched)
   const serpBiomed = (q) => /biomed/i.test(q) && !/site:/.test(q) ? [ { title: 'Biomed Tunis — implants orthopédiques', link: 'https://biomedtunis.tn/', snippet: 'Biomed Tunis, distributeur à Tunis, Tunisie' } ] : [];
   mode = { serp: serpBiomed, sites: { 'https://old-biomed.tn': new TypeError('fetch failed: getaddrinfo ENOTFOUND'), 'http://old-biomed.tn': new TypeError('getaddrinfo ENOTFOUND'), 'https://www.old-biomed.tn': new TypeError('ENOTFOUND'), 'http://www.old-biomed.tn': new TypeError('ENOTFOUND'), 'https://biomedtunis.tn': H(page('Biomed Tunis', 'Tunisie · implants orthopédiques · +216 71 000 000')) } };
-  const e1 = await (await EN.onRequestGet({ request: req('/api/enrich?site=old-biomed.tn&q=Biomed%20Tunis&raw=Biomed%20Tunis&country=Tunisia'), env: { SERPER_API_KEY: 'k' } })).json();
+  const e1 = await (await EN.onRequestGet({ request: req('/api/enrich?site=old-biomed.tn&q=Biomed%20Tunis&raw=Biomed%20Tunis&country=Tunisia'), env: { BRIGHTDATA_API_KEY: 'b', BRIGHTDATA_SERP_ZONE: 'serp' } })).json();
   const w1 = (e1.items || []).find((x) => x.kind === 'website'); console.log('dead site on file → error:', e1.site_error, '| fallback:', e1.fallback, '| found:', w1 && w1.value, '| source:', w1 && w1.source, '| pages read:', e1.pages.length);
   if (!/does not exist/.test(e1.site_error || '') || e1.fallback !== 'name' || !w1 || !/biomedtunis\.tn/.test(w1.value) || !/found by name/.test(w1.source) || !e1.pages.length) bad.push('enrich fallback');
   // enrich with NO website and only Bright Data search set (Richard's engine) → still searches by name
@@ -38,12 +38,12 @@ const P = require('path');
   const w2 = (e2.items || []).find((x) => x.kind === 'website'); console.log('no website + Bright Data search only → searched:', e2.searched, '| found:', w2 && w2.value); if (!e2.searched || !w2) bad.push('no-website name search (bright data)');
   // research: the site on file won't open and nothing else is found by name → the real reason, not a rejection
   mode = { serp: () => [], sites: {} };
-  const rr = await (await RS.onRequestGet({ request: req('/api/research?site=dead-site.tn&name=Ghost%20Medical&country=Tunisia'), env: { SERPER_API_KEY: 'k' } })).json();
+  const rr = await (await RS.onRequestGet({ request: req('/api/research?site=dead-site.tn&name=Ghost%20Medical&country=Tunisia'), env: { BRIGHTDATA_API_KEY: 'b', BRIGHTDATA_SERP_ZONE: 'serp' } })).json();
   console.log('research, dead site:', rr.verdict, '|', rr.reason, '| searched by name:', (mode.searches || []).some((q) => /Ghost Medical/.test(q)));
   if (rr.verdict !== 'research_blocked' || !/didn’t open \(the address does not exist/.test(rr.reason || '') || !/not a rejection/.test(rr.reason || '') || !(mode.searches || []).some((q) => /Ghost Medical/.test(q))) bad.push('research dead site');
   // ---- 3 · leads with no website: search by name first, then Apollo
   mode = { serp: serpBiomed, snovOk: true, sites: { 'https://biomedtunis.tn': H(page('Biomed Tunis', 'Tunisie · implants orthopédiques')) } };
-  const envL = { SERPER_API_KEY: 'k', APOLLO_API_KEY: 'a' };
+  const envL = { BRIGHTDATA_API_KEY: 'b', BRIGHTDATA_SERP_ZONE: 'serp', APOLLO_API_KEY: 'a' };
   const l1 = await (await LE.onRequestGet({ request: req('/api/leads?domain=&name=Biomed%20Tunis&country=Tunisia'), env: envL })).json();
   console.log('leads, no website → domain:', l1.domain, '| from:', l1.domain_from, l1.domain_ownership, '| Apollo name search used:', calls.some((u) => /mixed_companies/.test(u))); if (l1.domain !== 'biomedtunis.tn' || l1.domain_from !== 'search' || calls.some((u) => /mixed_companies/.test(u))) bad.push('leads name search first');
   // ---- 1 · Snov out of credits
