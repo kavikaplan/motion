@@ -1263,6 +1263,58 @@ a.cm-waok { position: relative; } a.cm-waok::after { content: ''; position: abso
 .cm-dayev { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; } .cm-dayev .t { min-width: 2.6rem; } .cm-dayev .x { font-size: .76rem; }
 .cm-daytag.upd { background: color-mix(in srgb, #8b8f96 18%, transparent); color: var(--color-fg-muted); }
 .cm-daybulk { margin: 2px 0; } .cm-daybulk > summary { cursor: pointer; padding: 6px 4px; font-size: .84rem; color: var(--color-fg-muted); }
+
+/* 🔴 countries where Next has a distributor (House editor) */
+.cm-ndadd { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; } .cm-ndadd select, .cm-ndwho { flex: 1 1 160px; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; font: inherit; }
+.cm-ndlist { display: grid; gap: 4px; margin-bottom: 10px; } .cm-ndrow { display: grid; grid-template-columns: minmax(110px, 160px) 1fr auto; gap: 6px; align-items: center; } .cm-ndrow b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-nexthide.on { background: color-mix(in srgb, #e5484d 18%, transparent); border-color: color-mix(in srgb, #e5484d 50%, transparent); }
+
+/* ⚙ Filter on Best partners (NetHunt-style conditions) */
+.cm-pflbox { display: grid; gap: 8px; margin: 8px 0; padding: 10px; border: 1px solid var(--color-border-line); border-radius: 12px; }
+.cm-pflrow { display: grid; grid-template-columns: 74px minmax(120px, 1fr) minmax(100px, 150px) minmax(120px, 1.3fr) auto; gap: 6px; align-items: start; }
+.cm-pflrow select, .cm-pflrow input { width: 100%; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; font: inherit; }
+.cm-pflrow select[multiple] { padding: 2px; } .cm-pflby { font-size: .84rem; color: var(--color-fg-muted); padding-top: 7px; } .cm-pflvw { display: grid; gap: 2px; } .cm-pflcnt { font-size: .74rem; }
+.cm-pflfoot { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.cm-pflbtn.on { background: color-mix(in srgb, var(--color-accent, #3b82f6) 18%, transparent); border-color: color-mix(in srgb, var(--color-accent, #3b82f6) 50%, transparent); }
+.cm-pflsum { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .8rem; color: var(--color-fg-muted); }
+@media (max-width: 640px) { .cm-pflrow { grid-template-columns: 1fr 1fr; } .cm-pflrow .cm-pflby, .cm-pflrow .cm-pflm { grid-column: 1 / -1; } .cm-pflrow .cm-pflvw, .cm-pflrow input.cm-pflv { grid-column: 1 / -1; } }
+
+/* ➕ Add to Medint (browser button) */
+.cm-cap { max-width: 720px; } .cm-capsrc { display: block; margin: 4px 0 10px; font-size: .84rem; color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-capbusy { padding: 14px; border-radius: 12px; border: 1px dashed var(--color-border-line); margin: 10px 0; }
+.cm-capcard { border: 1px solid var(--color-border-line); border-radius: 14px; padding: 12px 14px; margin: 10px 0; display: grid; gap: 8px; } .cm-capcard h3 { margin: 0 0 2px; font-size: 1rem; } .cm-capcard h3 label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.cm-capf { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; } .cm-capf > span { font-size: .82rem; color: var(--color-fg-muted); }
+.cm-capf input, .cm-capf select, .cm-capf textarea { width: 100%; min-width: 0; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; font: inherit; } .cm-capf textarea { min-height: 54px; resize: vertical; }
+.cm-capdup { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #30a46c 14%, transparent); font-size: .86rem; }
+.cm-capgo { width: 100%; padding: 12px; font-size: 1rem; margin: 6px 0 18px; } .cm-capdone { display: grid; gap: 10px; padding: 16px; border-radius: 14px; background: color-mix(in srgb, #30a46c 14%, transparent); margin: 12px 0; }
+.cm-capbmw { text-align: center; margin: 14px 0; } .cm-capbm { font-size: 1.05rem; padding: 10px 18px; cursor: grab; } .cm-capurl { display: flex; gap: 6px; margin-top: 10px; } .cm-capurl input { flex: 1; min-width: 0; }
+@media (max-width: 560px) { .cm-capf { grid-template-columns: 1fr; gap: 3px; } }
+
+/* top bar, simpler (Kavi, 7 Nov 2026): the tools sit in 🧰 Tools ▾; no version label, no shortcut hint */
+.cm-nhbtn, .cm-enrtop, .cm-cpgbtn, .cm-capbtn, .cm-tb-cmp, .cm-build, .cm-kbd { display: none !important; }
+/* Power hour: Skip · ⋯ · 🙈 Ignore in the top bar */
+.cm-phtacts { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; vertical-align: middle; } .cm-phtacts .cm-btn { padding: 3px 10px; font-size: .82rem; min-height: 0; } .cm-phtacts .cm-mini { font-size: .8rem; }
+
+/* ✉ email from Power hour: a full-height panel on the right (like 🔎 Find contacts); Power hour moves to the left; ⤢ makes it big */
+:root { --md-w: min(640px, 46vw); }
+.cm-maildock { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1240; width: var(--md-w); display: flex; flex-direction: column; background: var(--color-bg-elevated, var(--color-bg, #fff)); border-left: 1px solid var(--color-border-line); box-shadow: -12px 0 40px rgba(0,0,0,.4); }
+.cm-maildock.max { inset: 3vh 4vw; width: auto; border: 1px solid var(--color-border-line); border-radius: 14px; }
+.cm-mdhd { display: flex; align-items: center; gap: 6px; padding: 12px 12px 10px 16px; border-bottom: 1px solid var(--color-border-line); } .cm-mdhd b { flex: 1; font-size: 1rem; }
+.cm-mdbody { flex: 1; overflow: auto; padding: 10px 16px 16px; }
+@media (min-width: 1000px) { body.cm-mdopen #cm-sheet.center { left: calc((100vw - var(--md-w)) / 2) !important; width: min(1000px, calc(100vw - var(--md-w) - 30px)) !important; } }
+@media (max-width: 999px) { :root { --md-w: min(560px, 100vw); } }
+@media (max-width: 700px) { .cm-maildock, .cm-maildock.max { inset: 0; width: auto; border-radius: 0; } }
+/* ✔ review before sending */
+.cm-mlrev { border: 1px solid color-mix(in srgb, #f5a623 55%, transparent); background: color-mix(in srgb, #f5a623 12%, transparent); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; margin: 8px 0; }
+.cm-mlrevl { font-size: .88rem; } .cm-mlrevb { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
+
+/* ⚡ Power hour focus chips (All · Replies · Intros · Follow-ups) in the top bar */
+.cm-phmodes { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; } .cm-phmode { font-size: .78rem; padding: 2px 9px; min-height: 0; } .cm-phmode.on { background: color-mix(in srgb, var(--color-accent, #3b82f6) 22%, transparent); border-color: color-mix(in srgb, var(--color-accent, #3b82f6) 55%, transparent); font-weight: 600; }
+
+/* Best partners sorted by status: a thin coloured line where each status starts */
+.cm-stsep { height: 3px; border-radius: 3px; margin: 10px 2px 4px; opacity: .85; } .cm-stsep.first { margin-top: 2px; }
+/* 📣 Your campaigns: status chips */
+.cm-cpst { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; } .cm-cpst .cm-chip.on { font-weight: 600; background: color-mix(in srgb, var(--color-accent, #3b82f6) 18%, transparent); }
 </style>
 
 <div class="cm">
@@ -1714,5 +1766,5 @@ a.cm-waok { position: relative; } a.cm-waok::after { content: ''; position: abso
 
 
 </div>
-<script>cmBoot(['page.d606c7dd71.js', 'app.d0eed2fccd.js']);</script>
+<script>cmBoot(['page.9cdb1225b5.js', 'app.f2a595840b.js']);</script>
 </body></html>

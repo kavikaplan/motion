@@ -199,7 +199,7 @@ export async function campRoute(sub, request, env, ctx) {
   const { login, me, boxes } = ctx; const d1 = await cdb(env); const url = new URL(request.url); const house = me.role === 'House';
   const mineCamp = async (id) => { const c = await d1.prepare('SELECT * FROM camp WHERE id = ?').bind(String(id || '')).first(); if (!c) throw Object.assign(new Error('Campaign not found'), { status: 404 }); if (c.login !== login && !house) throw Object.assign(new Error('Not your campaign'), { status: 403 }); return c; };
   const body = request.method === 'POST' ? await request.json().catch(() => ({})) : {};
-  if (sub === 'list') { const rs = (await d1.prepare(`SELECT * FROM camp WHERE status != 'draft' AND ${house ? '1 = 1' : 'login = ?'} ORDER BY created DESC LIMIT 200`).bind(...(house ? [] : [ login ])).all()).results || [];
+  if (sub === 'list') { const rs = (await d1.prepare(`SELECT * FROM camp WHERE ${house ? '1 = 1' : 'login = ?'} ORDER BY created DESC LIMIT 200`).bind(...(house ? [] : [ login ])).all()).results || [];
     const L = []; for (const c of rs) L.push({ ...c, steps: parse(c.steps, []), fallbacks: parse(c.fallbacks, {}), log: undefined, n: await counts(d1, c.id) }); return json({ camps: L }); }
   if (sub === 'get') { const c = await mineCamp(url.searchParams.get('id')); const rs = (await d1.prepare('SELECT id, seq, company_id, company, person_id, kind, name, title, email, iso, country, city, tz, step, next_at, status, reason, reason_at, on_touch, last_at, thread_id, err, replied_at FROM camp_rcpt WHERE camp_id = ? ORDER BY seq').bind(c.id).all()).results || [];
     return json({ camp: { ...c, steps: parse(c.steps, []), fallbacks: parse(c.fallbacks, {}), log: undefined, n: await counts(d1, c.id) }, rcpts: rs }); }

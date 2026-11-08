@@ -4,7 +4,7 @@
   Referrer-Policy: same-origin
   X-Content-Type-Options: nosniff
   Permissions-Policy: camera=(), microphone=(self), geolocation=(self)
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-EAuAn5Uxr5l2D+ZsBMLXY44aM5Xq4u8r/zcEbaCGhCs='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'sha256-W14+WRZC1F1CEYxmKWo/FuxZVS/16zSe/DQ6T3w3fwI='; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'
 /index.html
   Cache-Control: no-cache
 /

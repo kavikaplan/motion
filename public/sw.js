@@ -3,11 +3,11 @@
    · NetHunt answers and other reads (/api/…) come from the network when possible; offline or signed out, the last saved answer is used
    · changes made offline are NOT handled here: the page keeps them in its outbox and sends them later (dash-runtime.js)
    Version is stamped by build.py so each deploy refreshes the saved app. */
-const V = 'd606c7dd71d0eed2fccd';
+const V = '9cdb1225b5f2a595840b';
 const SHELL = `medint-shell-${V}`;
 const DATA = 'medint-data';   // data files: kept across deploys, refreshed in the background
 const API = 'medint-api';     // last answers of reads, kept across deploys
-const CORE = ['/', '/dash-runtime.js', '/theme.css', '/manifest.webmanifest', '/icon-192.png', '/apple-touch-icon.png', '/datasets.json', '/params.json', '/d3.min.js', '/page.d606c7dd71.js', '/app.d0eed2fccd.js'];
+const CORE = ['/', '/dash-runtime.js', '/theme.css', '/manifest.webmanifest', '/icon-192.png', '/apple-touch-icon.png', '/datasets.json', '/params.json', '/d3.min.js', '/page.9cdb1225b5.js', '/app.f2a595840b.js'];
 const NH_WRITE = /^(update_record|create_record|create_record_comment|create_record_call_log|delete_record|update_folder|update_folder_field|add_folder_field|create_folder)$/;
 const API_MAX = 600;
 
