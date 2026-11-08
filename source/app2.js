@@ -643,7 +643,7 @@ let pqMemo = {
 };
 
 // Next Shoulder already has a distributor here (Distribütor Listesi, 2025) — People don't get these companies for Next outreach; House still sees them
-const NEXT_DIST = new Set([ 'LY', 'MA', 'LB', 'MX', 'AZ', 'EG', 'IR', 'MY', 'BR', 'UZ', 'RU', 'IQ', 'MV', 'UG', 'CO', 'PH', 'PL', 'PK', 'AR', 'SA', 'LK', 'GR', 'JO', 'CN', 'YE', 'MD', 'IT', 'PE', 'ID', 'PR', 'NI', 'UA', 'MU', 'PT' ]);
+const NEXT_DIST = new Set([ 'LY', 'MA', 'LB', 'MX', 'AZ', 'EG', 'IR', 'MY', 'BR', 'UZ', 'RU', 'IQ', 'MV', 'UG', 'CO', 'PH', 'PL', 'PK', 'AR', 'SA', 'LK', 'GR', 'JO', 'CN', 'YE', 'MD', 'IT', 'PE', 'ID', 'PR', 'NI', 'UA', 'MU', 'PT', 'BI', 'TR', 'US', 'BG', 'EC', 'VE', 'CL', 'VN' ]); // + 8 from the NetHunt NEXT view filter (6 Nov 2026)
 
 const NEXT_DIST_INFO = {
   LY: 'Titanium Medical · no contract',
@@ -682,12 +682,44 @@ const NEXT_DIST_INFO = {
   PT: 'Criomove'
 };
 
+// the team's own list (House edits it: 🔴 Next countries → ✎), one copy for everyone (/api/prefs path team/next-dist); until it is
+// first saved, the built-in list above
+let nextTeam = null; // { isos: [..], info: { ISO: 'distributor · contract' } }
+async function nextTeamLoad() { try { const r = await fetch('/api/prefs?path=team/next-dist', { credentials: 'same-origin' }); if (!r.ok) return; const j = await r.json(); j && j.exists && j.data && Array.isArray(j.data.isos) && (nextTeam = j.data, pqMemo.key = ''); } catch (_e) { /* offline: built-in list */ } }
+setTimeout(() => nextTeamLoad(), 1500);
 function nextInfo(iso) {
   if (!iso || !nextDist().has(iso)) return null;
   return {
     iso,
-    who: ((__cm.uiFlags || {}).nextDistInfo || {})[iso] || NEXT_DIST_INFO[iso] || 'Next Shoulder distributor'
+    who: (nextTeam && nextTeam.info && nextTeam.info[iso]) || ((__cm.uiFlags || {}).nextDistInfo || {})[iso] || NEXT_DIST_INFO[iso] || 'Next Shoulder distributor'
   };
+}
+// ✎ House: add / remove countries and who the distributor is
+function nextDistEdit(anchor, L0) {
+  const C = __cm, el = C.el; const L = L0 || new Map([ ...nextDist() ].map((i) => [ i, (nextInfo(i) || {}).who || '' ])); 
+  const name = (i) => (C.countryOfIso(i) || {}).country || i;
+  C.openSheet(anchor, '🔴 Countries where Next has a distributor', (body) => {
+    body.append(el('p', 'mut', 'People never get companies in these countries for Next; you can hide them with “🔴 Next countries”. One list for the whole team.'));
+    const add = el('div', 'cm-ndadd'); const sel = el('select', 'cm-ndsel'); sel.append(new Option('Add a country…', ''));
+    C.rowsOf('countries').filter((c) => c.iso && !L.has(c.iso)).sort((a, b) => String(a.country).localeCompare(String(b.country))).forEach((c) => sel.append(new Option(c.country, c.iso)));
+    const who = el('input', 'cm-ndwho'); who.placeholder = 'Distributor · contract (optional)'; const ab = el('button', 'cm-btn', '➕ Add'); ab.type = 'button';
+    ab.addEventListener('click', () => { if (!sel.value) return; L.set(sel.value, who.value.trim()); draw(); });
+    add.append(sel, who, ab); body.append(add);
+    const list = el('div', 'cm-ndlist'); [ ...L ].sort((a, b) => name(a[0]).localeCompare(name(b[0]))).forEach(([i, w]) => {
+      const r = el('div', 'cm-ndrow'); r.append(el('b', null, `${C.flag ? C.flag(i) : ''} ${name(i)}`)); const inp = el('input', 'cm-ndwho'); inp.value = w === 'Next Shoulder distributor' ? '' : w; inp.placeholder = 'Distributor · contract';
+      inp.addEventListener('input', () => { L.set(i, inp.value.trim()); });
+      const x = el('button', 'cm-btn ghost', '✕'); x.type = 'button'; x.title = `Remove ${name(i)}`; x.addEventListener('click', () => { L.delete(i); r.remove(); cnt.textContent = `${L.size} countries`; });
+      r.append(inp, x); list.append(r); });
+    const cnt = el('p', 'mut', `${L.size} countries`); body.append(cnt, list);
+    const sv = el('button', 'cm-btn', '💾 Save for the team'); sv.type = 'button'; sv.addEventListener('click', async () => {
+      const data = { isos: [ ...L.keys() ].sort(), info: Object.fromEntries([ ...L ].filter(([, w]) => w)), at: Date.now() };
+      sv.disabled = !0; sv.textContent = 'Saving…';
+      try { const r = await fetch('/api/prefs?path=team/next-dist', { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) }); if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`);
+        nextTeam = data; pqMemo.key = ''; C.closeSheet(); C.say(`🔴 Saved — ${data.isos.length} countries for the whole team`); try { C.drawPartners(); } catch (_e) { dash.setParams({}); } }
+      catch (e) { sv.disabled = !1; sv.textContent = '💾 Save for the team'; C.say(`Not saved: ${e.message}`); } });
+    body.append(sv);
+  }, { center: !0 });
+  const draw = () => { C.closeSheet(); nextDistEdit(anchor, L); };
 }
 
 function nextTag(iso, small) {
@@ -701,12 +733,16 @@ function nextTag(iso, small) {
 }
 
 const nextDist = () => {
+  if (nextTeam && Array.isArray(nextTeam.isos)) return new Set(nextTeam.isos);
   const o = (__cm.uiFlags || {}).nextDistIsos;
   return Array.isArray(o) && o.length ? new Set(o) : NEXT_DIST;
 };
 
+// House sees these countries too, unless the 🔴 filter is on (Best partners → “Next countries”), like NetHunt's NEXT view filter
+const nextHouseHide = () => { try { return localStorage.getItem('medint.nexthide') === '1'; } catch (_e) { return !1; } };
+function nextHideToggle() { try { localStorage.setItem('medint.nexthide', nextHouseHide() ? '0' : '1'); } catch (_e) { /* private mode */ } pqMemo.key = ''; try { __cm.drawPartners(); } catch (_e) { dash.setParams({}); } }
 function nextHide(iso, brand, id) {
-  if (isHouse() || !iso || !nextDist().has(iso)) return !1;
+  if ((isHouse() && !nextHouseHide()) || !iso || !nextDist().has(iso)) return !1;
   if (brand === 'next') return !0;
   if (brand === 'dunitech' || brand === 'motion') return !1;
   return bestBrand(id, null, 'next') === 'next';
@@ -714,18 +750,18 @@ function nextHide(iso, brand, id) {
 
 function powerQueue() {
   const C0 = __cm;
-  const key = [ C0.curView(), C0.oursKey(), dash.params().iso, dash.params().pcity, dash.params().phfor, dash.params().pfit, dash.params().phide, dash.params().asg, phMode, phNoReach.size, C0.curView() === 'country' ? C0.rowsOf('partners').length : 0, C0.rowsOf('pipeline_stages').length, dash.data('contact_history').status, (dash.data('contact_history').data || []).length, dash.data('calendar_events').status, phWorked.size, dash.params().ign ].join('|');
+  const key = [ C0.curView(), C0.oursKey(), dash.params().iso, dash.params().pcity, dash.params().phfor, dash.params().pfit, dash.params().phide, dash.params().asg, dash.params().pfl, phMode, phFocusGet(), phNoReach.size, C0.curView() === 'country' ? C0.rowsOf('partners').length : 0, C0.rowsOf('pipeline_stages').length, dash.data('contact_history').status, (dash.data('contact_history').data || []).length, dash.data('calendar_events').status, phWorked.size, dash.params().ign ].join('|');
   if (pqMemo.key === key && Date.now() - pqMemo.at < 2e4) return pqMemo.val;
  // the same answer for 20 s: Home and Power hour don't recompute it on every redraw
     const isoOf = x => x.iso || (__cm.companyById && __cm.companyById(x.id) || {}).iso || (C0.curView() === 'country' ? dash.params().iso : '');
   const val = powerQueue0();
-  val && Array.isArray(val.list) && !isHouse() && (val.list = val.list.filter(x => !nextHide(isoOf(x), val.key, x.id)));
+  val && Array.isArray(val.list) && (!isHouse() || nextHouseHide()) && (val.list = val.list.filter(x => !nextHide(isoOf(x), val.key, x.id)));
   { const sn = (C0.uiFlags || {}).phSnooze || {}; val && Array.isArray(val.list) && (val.list = val.list.filter(x => !(sn[x.id] > Date.now()))); }
   if (!1) // a country's Power hour stays in that country (companies listed in several countries still count); the main Power hour covers all countries
   try {
     const more = powerQueue0(!0);
     const have = new Set(val.list.map(x => x.id));
-    const add = (more.list || []).filter(x => !have.has(x.id) && (isHouse() || !nextHide(isoOf(x), val.key, x.id))).slice(0, 25 - val.list.length).map(x => ({
+    const add = (more.list || []).filter(x => !have.has(x.id) && (isHouse() && !nextHouseHide() || !nextHide(isoOf(x), val.key, x.id))).slice(0, 25 - val.list.length).map(x => ({
       ...x,
       elsewhere: !0
     }));
@@ -935,7 +971,7 @@ function powerQueue0(everywhere) {
     // each company's own country (several countries can be open at once, e.g. a region): its flag, local time, weather and grouping follow it
     const selIsos = (C.multiIsos && C.multiIsos()) || [ dash.params().iso ];
     const isoRow = r => coIso(r.id, pst.get(r.id), selIsos);
-        C.rowsOf('partners').filter(r => r.ortho_verdict !== 'not_ortho' && fitOk(r) && ppOk(r) && asOk(r) && C.cityIn(r, city)).forEach(r => {
+        C.rowsOf('partners').filter(r => r.ortho_verdict !== 'not_ortho' && fitOk(r) && ppOk(r) && asOk(r) && C.cityIn(r, city) && (!C.pflOk || C.pflOk(r))).forEach(r => {
       const c = co.get(r.id) || {};
       const score = r[`score_${key}`] ?? r.score_all;
       const t = tierOf(r.id, r[`stage_${key}`] || 0, r[`status_${key}`], score, c.next_followup);
@@ -955,7 +991,7 @@ function powerQueue0(everywhere) {
     // a Power hour is ~25 calls: when the urgent groups are short, add the best remaining companies (new leads first, then keep warm)
         if (items.length < PH_POOL) {
       const have = new Set(items.map(x => x.id));
-      C.rowsOf('partners').filter(r => !have.has(r.id) && r.ortho_verdict !== 'not_ortho' && !isIgnored(r.id) && !parked(r[`status_${key}`]) && fitOk(r) && ppOk(r) && asOk(r) && C.cityIn(r, city) && (r[`stage_${key}`] || 0) < 6 && !lost(r[`status_${key}`])).map(r => {
+      C.rowsOf('partners').filter(r => !have.has(r.id) && r.ortho_verdict !== 'not_ortho' && !isIgnored(r.id) && !parked(r[`status_${key}`]) && fitOk(r) && ppOk(r) && asOk(r) && C.cityIn(r, city) && (!C.pflOk || C.pflOk(r)) && (r[`stage_${key}`] || 0) < 6 && !lost(r[`status_${key}`])).map(r => {
         const rc = C.realContact(r.id);
         return {
           r,
@@ -1052,11 +1088,14 @@ function powerQueue0(everywhere) {
   const list = items.filter(x => !seen.has(x.id) && seen.add(x.id) && !isIgnored(x.id) && (!pf || (pf === '-' ? !assigneeOf(x.id) : assigneeOf(x.id) === pf)));
   const rest = list.filter(x => !phWorked.has(x.id));
   phFull = list;
+  const counts = { replies: 0, intros: 0, follow: 0 }; rest.forEach(x => { counts[x.__cls = phCls(x)]++; });
+  const fo = phMode === 'enrich' ? '' : phFocusGet(); const rest2 = fo ? rest.filter(x => x.__cls === fo) : rest;
   return {
-    list: rest.slice(0, PH_TARGET),
+    counts, focus: fo, all: rest.length,
+    list: rest2.slice(0, PH_TARGET),
     label: PH_WHY,
     key,
-    total: rest.length
+    total: rest2.length
   };
 }
 
@@ -1201,6 +1240,19 @@ let phUndo = null;
 
  // the company you just skipped (↶ Undo for 5 seconds)
 let phMode = '';
+// Power hour focus (Kavi, 8 Nov 2026): '' all · 'replies' (they wrote / Replied, below Interested) · 'intros' (Lead · Enriched · To be qualified ·
+// Contacted · Drips…) · 'follow' (Interested and above — Customer, Promising, Negotiating, Follow up, Awaiting response, Meeting — and due follow-ups).
+// Remembered for the day only.
+function phFocusGet() { try { const j = JSON.parse(localStorage.getItem('medint.phfocus') || 'null'); return j && j.d === new Date().toDateString() ? j.f || '' : ''; } catch (_e) { return ''; } }
+function phFocusSet(f) { try { localStorage.setItem('medint.phfocus', JSON.stringify({ d: new Date().toDateString(), f: f || '' })); } catch (_e) { /* private mode: this page only */ } pqMemo.key = ''; }
+function phCls(x) {
+  const st = String(x.status || ''); const rk = window.cmStatusRank ? window.cmStatusRank(st) : 99; const rInt = window.cmStatusRank ? window.cmStatusRank('Interested') : 7;
+  if (st && rk <= rInt) return 'follow'; // Interested and above (Customer, Registration, Promising, Negotiating, Follow up, Awaiting response, Meeting)
+  if (x.t === 0 || /replied|engaged/i.test(st)) return 'replies';
+  if (x.t === 1) return 'follow'; // a meeting is near
+  if (x.t === 2 && !st) return 'follow';
+  return 'intros';
+}
 
  // '' = Power hour (ready to call) · 'enrich' = 🔎 Enrich queue (find numbers and emails)
 const phNoReach = new Set;
@@ -1915,7 +1967,7 @@ function openPowerHour(anchor, focusId, mode) {
         })), ...land.slice(0, 4).map(n => ({
           icon: '💬',
           label: `${n} has WhatsApp after all`,
-          sub: 'show the WhatsApp button for it',
+          sub: '',
           act: () => {
             window.__cm3.waYes(n);
             C.sheetDraw();
@@ -5677,7 +5729,7 @@ function meChip() {
   }, ...m.role === 'House' ? [] : [ {
     icon: '🗂',
     label: 'Sees only the companies assigned to them',
-    sub: 'set by House under 👥 People → 🗂 Assignments'
+    sub: ''
   } ], {
     icon: '🚪',
     label: 'Log out',
@@ -6810,14 +6862,14 @@ function photoMenu(anchor, contactId, name) {
   const items = [ {
     icon: '📷',
     label: 'Upload a photo',
-    sub: 'from your computer or phone',
+    sub: '',
     act: pick
   } ];
   true;
   items.push({
     icon: '🔗',
     label: 'Photo from a link',
-    sub: 'paste an image address (e.g. their company’s team page)',
+    sub: '',
     act: async () => {
       const u = window.prompt('Image address (https://…)');
       if (!u) return;
@@ -6835,7 +6887,7 @@ function photoMenu(anchor, contactId, name) {
   items.push({
     icon: '📋',
     label: 'Paste a copied image',
-    sub: 'right-click a photo → Copy image, then choose this',
+    sub: '',
     act: async () => {
       try {
         const it = await navigator.clipboard.read();
@@ -7137,7 +7189,7 @@ const TP_ST = new Proxy({}, {
 
 // ===================== simplify & decide: Home inbox, data health, saved views, feature usage, one place per fact, short company page, weekly report =====================
 // --- 🔖 saved views: one tap on Home (kept with your settings, works everywhere) ---
-const VIEW_KEYS = [ 'view', 'iso', 'tags', 'isos', 'glabel', 'ctab', 'csub', 'ours', 'pcity', 'asg', 'cid', 'phfor' ];
+const VIEW_KEYS = [ 'view', 'iso', 'tags', 'isos', 'glabel', 'ctab', 'csub', 'ours', 'pcity', 'asg', 'cid', 'phfor', 'pfl' ];
 
 function savedViews() {
   return ((__cm.uiFlags || {}).views || []).filter(v => v && v.name);
@@ -9926,7 +9978,13 @@ function drawHome() {
       const c = cs.find(x => low(x.iso) === low(v) || low(x.country) === low(v));
       return c ? [ c.iso, `${C.flag(c.iso)} ${c.country}` ] : [ null, v ];
     }) : r.type === 'Region' ? [ [ null, `🗺 ${r.value}` ] ] : [ [ null, `${r.type === 'Tag' ? '🏷' : r.type === 'Status' ? '📈' : r.type === 'Batch' ? '📋' : '🏢'} ${r.value}` ] ]);
-    if (chips.length) {
+    if (chips.length > 6) {
+      // many markets: one dropdown instead of a long row of chips (Kavi, 7 Nov 2026)
+      const mb = el('button', 'cm-chip cm-mymkdd', `🗺 Your markets · ${chips.length} ▾`);
+      mb.type = 'button'; mb.setAttribute('aria-haspopup', 'menu');
+      mb.addEventListener('click', () => C.openMenu(mb, chips.map(([iso, l]) => ({ icon: '', label: l, act: () => iso && window.cmOpenCountry && window.cmOpenCountry(iso) }))));
+      mk.append(mb);
+    } else if (chips.length) {
       mk.append(el('span', 'mut', 'Your markets:'));
       chips.forEach(([iso, l]) => {
         const b = el('button', 'cm-chip', l);
@@ -10576,6 +10634,10 @@ window.__cm2 = {
   myPace,
   planToday,
   nextHide,
+  nextHouseHide,
+  nextHideToggle,
+  nextDistEdit,
+  nextDist,
   nextInfo,
   nextTag,
   editPerson: (a, p, cid) => editPerson(a, p, cid),
@@ -10635,6 +10697,7 @@ window.__cm2 = {
 window.__cm.flush();
 
 window.__cm2x = {
+  miBrand, bestBrand, phFocusGet, phFocusSet, phCls, phModeNow: () => phMode,
   replyDraft, // (tests: the ready-made texts)
   cgSeries, // (tests: congress series)
   daysReset: () => { dS.data = null; dS.at = 0; dS.d1 = void 0; dS.busy = !1; }, // fetch the Days & goals numbers again

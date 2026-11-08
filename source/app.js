@@ -1075,9 +1075,15 @@ const brandRule = b => { const k = brandKeyOf(b); return k === 'dunitech' ? 'Dun
 // X-ray / imaging companies are never leads for Dunitech or Next Shoulder — not even when they wrote or have a status (Kavi, 2 Nov 2026); they stay under All companies and in the Inbox
 const offScope = (b, category) => [ 'dunitech', 'next' ].includes(brandKeyOf(b)) && /x-?ray|r[öo]ntgen|radiolog|imaging|rayos/i.test(String(category || ''));
 // the order companies take when sorted by status (Kavi, Nov 2026) — Status and NEXT Status names both fit in it; anything else after, empty last
-const STATUS_ORDER = [ [ /registration|registeration/, 'Registration' ], [ /negotiat/, 'Negotiating' ], [ /promising/, 'Promising' ], [ /follow ?-?up/, 'Follow up' ], [ /awaiting|no response/, 'Awaiting response' ], [ /meeting/, 'Meeting' ], [ /^(?!.*not ).*int(e)?rest/, 'Interested' ], [ /replied|engaged/, 'Replied' ], [ /called/, 'Called' ], [ /contact/, 'Contacted' ], [ /drip/, 'Drips' ], [ /enriched/, 'Enriched' ], [ /^leads?$|^target$/, 'Lead' ], [ /to be qualified|need action|queued/, 'To be qualified' ], [ /nurtur/, 'Nurturing' ], [ /customer/, 'Customer' ], [ /doctor|surgeon|hospital/, 'Doctor / surgeon / hospital' ], [ /distributor/, 'Distributor' ], [ /lost|not interested|not a fit|no fit|rejected/, 'Lost' ], [ /exploring|market entry/, 'Exploring market entry' ], [ /no info|un ?qualified medical expo/, 'No info' ], [ /manufactur/, 'Manufacturing branch' ], [ /un ?processed/, 'Unprocessed' ] ];
-const statusRank = st => { const v = String(st || '').trim().toLowerCase(); if (!v) return STATUS_ORDER.length + 1; const lost = /lost|not interested|not a fit|no fit|rejected/.test(v); const k = STATUS_ORDER.findIndex(([re, l]) => (l === 'Lost' ? lost : !lost && re.test(v))); return k < 0 ? STATUS_ORDER.length : k; };
-window.cmStatusRank = statusRank;
+const STATUS_ORDER = [ [ /customer/, 'Customer' ], [ /registration|registeration/, 'Registration' ], [ /negotiat/, 'Negotiating' ], [ /promising/, 'Promising' ], [ /follow ?-?up/, 'Follow up' ], [ /awaiting|no response/, 'Awaiting response' ], [ /meeting/, 'Meeting' ], [ /^(?!.*not ).*int(e)?rest/, 'Interested' ], [ /replied|engaged/, 'Replied' ], [ /called/, 'Called' ], [ /contact/, 'Contacted' ], [ /drip/, 'Drips' ], [ /enriched/, 'Enriched' ], [ /^leads?$|^target$/, 'Lead' ], [ /to be qualified|need action|queued/, 'To be qualified' ], [ /nurtur/, 'Nurturing' ], [ /exploring|market entry/, 'Exploring market entry' ], [ /doctor|surgeon|hospital/, 'Doctor / surgeon / hospital' ], [ /distributor/, 'Distributor' ], [ /manufactur/, 'Manufacturing branch' ], [ /un ?processed/, 'Unprocessed' ], [ /no info|un ?qualified medical expo/, 'No info' ], [ /lost|not interested|not a fit|no fit|rejected/, 'Lost' ] ]; // (Kavi, 6 Nov 2026) Not a fit / no info / no status at the bottom
+const statusRank = st => { const v = String(st || '').trim().toLowerCase(); if (!v) return STATUS_ORDER.length + 1; const lost = /lost|not interested|not a fit|no fit|rejected/.test(v); const k = STATUS_ORDER.findIndex(([re, l]) => (l === 'Lost' ? lost : !lost && re.test(v))); return k < 0 ? STATUS_ORDER.findIndex(([, l]) => l === 'Exploring market entry') + .5 : k; }; // an unknown status sits with the middle ones, above manufacturers, no info and Not a fit
+// sorted by status, an ortho manufacturer is almost never a distributor: below Interested it goes down, just above “no info / Not a fit / no status”
+// one colour per status (the thin line between groups when Best partners is sorted by status)
+const STATUS_COL = { Customer: '#30a46c', Registration: '#12a594', Negotiating: '#f76b15', Promising: '#ffb224', 'Follow up': '#8e4ec6', 'Awaiting response': '#6e56cf', Meeting: '#3e63dd', Interested: '#0090ff', Replied: '#05a2c2', Called: '#29a383', Contacted: '#46a758', Drips: '#e93d82', Enriched: '#d6409f', Lead: '#a18072', 'To be qualified': '#978365', 'Nurturing': '#7c66dc', 'Exploring market entry': '#8d8d86', 'Doctor / surgeon / hospital': '#8d8d86', Distributor: '#6f6e77', 'Manufacturing branch': '#6f6e77', Unprocessed: '#9e9e9e', 'No info': '#b5b5b5', Lost: '#c8c8c8' };
+const statusColor = rk => { const l = (STATUS_ORDER[Math.floor(rk)] || [])[1]; return STATUS_COL[l] || (rk > STATUS_ORDER.length ? '#d0d0d0' : '#8d8d86'); };
+const isMaker = t => /manufactur|fabricant|\boem\b|brand owner|productor/i.test(`${t.category || ''}`);
+const statusRankCo = (t, st) => { const r = statusRank(st); return isMaker(t) && r > STATUS_ORDER.findIndex(([, l]) => l === 'Interested') && r <= STATUS_ORDER.length - 1 && !/^(No info|Lost)$/.test((STATUS_ORDER[r] || [])[1] || '') ? STATUS_ORDER.findIndex(([, l]) => l === 'Unprocessed') - .5 : r; };
+window.cmStatusRank = statusRank; window.cmStatusRankCo = (t, st) => statusRankCo(t, st);
 window.cmBrandProd = brandProd; window.cmBrandRule = brandRule; window.cmOffScope = offScope;
 
 let lastPtr = null;
@@ -2698,6 +2704,80 @@ document.addEventListener('click', e => {
   b && window.__cm2 && window.__cm2.openPowerHour(b);
 });
 
+// ⚙ Filter on Best partners — like NetHunt's view filter: “Category is Ortho · and · Country is none of Mexico, Brazil …”.
+// Kept in the address (pfl), so a saved view keeps it, and Power hour in that country follows it.
+const PFL_FIELDS = [
+  [ 'company', 'Name', 'text' ], [ 'category', 'Category', 'opt' ], [ 'country', 'Country', 'tags' ], [ 'city', 'City', 'tags' ], [ 'notes', 'Notes', 'text' ],
+  [ 'do_import', 'Do you import', 'tags' ], [ 'brands', 'Brand', 'tags' ], [ 'products', 'Products', 'text' ], [ 'status', 'Status', 'opt' ], [ 'next_status', 'NEXT Status', 'opt' ],
+  [ 'motion_status', 'Motion Status', 'opt' ], [ 'people', 'Related records (people)', 'num' ], [ 'tags', 'Tags', 'tags' ], [ 'source', 'Source', 'tags' ], [ 'industry', 'Industry', 'tags' ],
+  [ 'company_size', 'Company size', 'opt' ], [ 'update', 'Update', 'text' ], [ 'emails', 'Email', 'text' ], [ 'phones', 'Phone number', 'text' ], [ 'linkedin', 'LinkedIn', 'text' ],
+  [ 'facebook', 'Facebook', 'text' ], [ 'twitter', 'Twitter', 'text' ], [ 'instagram', 'Instagram', 'text' ], [ 'manager', 'Manager', 'opt' ], [ 'tender_usd', 'Public tender wins (USD)', 'num' ],
+  [ 'highlights', 'Highlights', 'text' ], [ 'ortho_sources', 'Ortho evidence', 'tags' ], [ 'related_n', 'Related companies', 'num' ], [ 'assigned_to', 'Assigned to', 'opt' ],
+  [ 'days', 'Days since last contact', 'num' ], [ 'calls_total', 'Total calls', 'num' ], [ 'emails_sent', 'Total emails sent', 'num' ]
+];
+const PFL_OPS = { text: [ [ 'has', 'contains' ], [ 'not', 'doesn’t contain' ], [ 'empty', 'is empty' ], [ 'full', 'is not empty' ] ],
+  opt: [ [ 'in', 'is' ], [ 'out', 'is not' ], [ 'empty', 'is empty' ], [ 'full', 'is not empty' ] ],
+  tags: [ [ 'in', 'is' ], [ 'out', 'is not' ], [ 'has', 'contains' ], [ 'empty', 'is empty' ], [ 'full', 'is not empty' ] ],
+  num: [ [ 'gt', 'more than' ], [ 'lt', 'less than' ], [ 'eq', 'equals' ], [ 'empty', 'is empty' ], [ 'full', 'is not empty' ] ] };
+const pflGet = () => { try { const j = JSON.parse(dash.params().pfl || 'null'); return j && Array.isArray(j.c) && j.c.length ? j : null; } catch (_e) { return null; } };
+const pflSplit = (k, v) => (v == null ? [] : String(v).split(k === 'brands' ? /\n/ : k === 'city' ? /\s*,\s*|\s*\|\s*/ : /\s*\|\s*/).map(x => x.replace(/\s*\(.*$/, k === 'brands' ? '' : '$&').trim()).filter(Boolean));
+let pflCo = { at: 0, m: null };
+function pflRec(id) { if (!pflCo.m || Date.now() - pflCo.at > 5e3) pflCo = { at: Date.now(), m: new Map(rowsOf('companies').map(c => [ c.id, c ])) }; return pflCo.m.get(id) || null; }
+function pflVal(t, k) {
+  const c = pflRec(t.id) || {};
+  if (k === 'days') { const d = c.last_interaction || t.last_interaction; return d ? Math.round((Date.now() - new Date(d)) / 864e5) : t.days_since_contact ?? null; }
+  if (k === 'company') return c.company || t.company || '';
+  if (k === 'category') return c.category || t.category || '';
+  if (k === 'city') return c.city || t.city || '';
+  if (k === 'people') return c.people ?? t.people ?? null;
+  return c[k] ?? t[k] ?? null;
+}
+function pflOk1(t, x) {
+  const f = PFL_FIELDS.find(([k]) => k === x.f); if (!f) return !0; const [k, , ty] = f; const v = pflVal(t, k); const low = s => String(s ?? '').toLowerCase().trim();
+  if (x.o === 'empty') return ty === 'num' ? v == null || v === '' : !String(v ?? '').trim();
+  if (x.o === 'full') return !(ty === 'num' ? v == null || v === '' : !String(v ?? '').trim());
+  if (ty === 'num') { const n = Number(v), q = Number(x.v); if (v == null || v === '' || Number.isNaN(n) || Number.isNaN(q)) return !1; return x.o === 'gt' ? n > q : x.o === 'lt' ? n < q : n === q; }
+  if (x.o === 'has' || x.o === 'not') { const hit = low(v).includes(low(x.v)); return x.o === 'has' ? !!low(x.v) && hit : !low(x.v) || !hit; }
+  const vals = ty === 'opt' ? [ low(v) ] : pflSplit(k, v).map(low); const want = [].concat(x.v || []).map(low).filter(Boolean); if (!want.length) return !0;
+  const any = want.some(w => vals.includes(w)); return x.o === 'in' ? any : !any;
+}
+function pflOk(t) { const F = pflGet(); if (!F) return !0; const R = F.c.map(x => pflOk1(t, x)); return F.m === 'or' ? R.some(Boolean) : R.every(Boolean); }
+const pflText = F => F.c.map(x => { const f = PFL_FIELDS.find(([k]) => k === x.f) || [ x.f, x.f, 'text' ]; const op = (PFL_OPS[f[2]].find(([o]) => o === x.o) || [ , x.o ])[1]; const v = Array.isArray(x.v) ? (x.v.length > 3 ? `${x.v.slice(0, 3).join(', ')} +${x.v.length - 3}` : x.v.join(', ')) : x.v; return `${f[1]} ${op}${/empty/.test(x.o) ? '' : ` ${v ?? ''}`}`; }).join(F.m === 'or' ? ' · or · ' : ' · and · ');
+// the choices for “is / is not”: every value used in this country's companies
+function pflChoices(k) { const S = new Map(); rowsOf('companies').forEach(c => { const v = k === 'company' ? c.company : c[k]; (PFL_FIELDS.find(([q]) => q === k) || [])[2] === 'opt' ? (String(v || '').trim() && S.set(String(v).trim().toLowerCase(), String(v).trim())) : pflSplit(k, v).forEach(x => S.set(x.toLowerCase(), x)); }); rowsOf('partners').forEach(t => { if (k === 'category' && t.category) S.set(t.category.toLowerCase(), t.category); }); return [ ...S.values() ].sort((a, b) => a.localeCompare(b)); }
+const pflRedraw = () => { try { drawPartners(); } catch (_e) { /* not on a country page */ } };
+function openPflEditor(anchor) {
+  const F0 = pflGet() || { m: 'and', c: [] }; const F = { m: F0.m || 'and', c: F0.c.map(x => ({ ...x, v: Array.isArray(x.v) ? [ ...x.v ] : x.v })) };
+  F.c.length || F.c.push({ f: 'category', o: 'in', v: [] });
+  openSheet(anchor, '⚙ Filter Best partners', body => {
+    const draw = () => {
+      body.replaceChildren(el('p', 'mut', 'Select conditions to filter by — the same fields as NetHunt. Power hour in this country follows the filter too.'));
+      const box = el('div', 'cm-pflbox');
+      F.c.forEach((x, i) => {
+        const r = el('div', 'cm-pflrow'); const f = PFL_FIELDS.find(([k]) => k === x.f) || PFL_FIELDS[0]; const ty = f[2];
+        if (i === 0) r.append(el('span', 'cm-pflby', 'Filter by')); else if (i === 1) { const m = el('select', 'cm-pflm'); [ [ 'and', 'And' ], [ 'or', 'Or' ] ].forEach(([v, l]) => m.append(new Option(l, v, !1, F.m === v))); m.addEventListener('change', () => { F.m = m.value; draw(); }); r.append(m); } else r.append(el('span', 'cm-pflby', F.m === 'or' ? 'Or' : 'And'));
+        const fs = el('select', 'cm-pflf'); PFL_FIELDS.forEach(([k, l]) => fs.append(new Option(l, k, !1, k === x.f))); fs.addEventListener('change', () => { x.f = fs.value; const t2 = (PFL_FIELDS.find(([k]) => k === x.f) || [])[2]; x.o = PFL_OPS[t2][0][0]; x.v = t2 === 'opt' || t2 === 'tags' ? [] : ''; draw(); });
+        const os = el('select', 'cm-pflo'); PFL_OPS[ty].forEach(([o, l]) => os.append(new Option(l, o, !1, o === x.o))); os.addEventListener('change', () => { x.o = os.value; if ((x.o === 'in' || x.o === 'out') && !Array.isArray(x.v)) x.v = x.v ? [ x.v ] : []; if ((x.o === 'has' || x.o === 'not') && Array.isArray(x.v)) x.v = x.v[0] || ''; draw(); });
+        r.append(fs, os);
+        if (!/empty|full/.test(x.o)) {
+          if (x.o === 'in' || x.o === 'out') {
+            const vs = el('select', 'cm-pflv'); vs.multiple = !0; vs.size = 5; const ch = pflChoices(x.f); [ ...new Set([ ...[].concat(x.v || []), ...ch ]) ].forEach(v => vs.append(new Option(v, v, !1, [].concat(x.v || []).some(w => String(w).toLowerCase() === v.toLowerCase()))));
+            vs.title = 'Pick one or more (Ctrl / ⌘ + click on a computer)'; vs.addEventListener('change', () => { x.v = [ ...vs.selectedOptions ].map(o => o.value); cnt.textContent = x.v.length ? `${x.v.length} chosen` : 'choose…'; });
+            const cnt = el('span', 'mut cm-pflcnt', [].concat(x.v || []).length ? `${[].concat(x.v).length} chosen` : 'choose…'); const w = el('div', 'cm-pflvw'); w.append(vs, cnt); r.append(w);
+          } else { const vi = el('input', 'cm-pflv'); vi.type = ty === 'num' ? 'number' : 'text'; vi.value = Array.isArray(x.v) ? x.v[0] || '' : x.v ?? ''; vi.placeholder = ty === 'num' ? 'number' : 'text'; vi.addEventListener('input', () => { x.v = vi.value; }); r.append(vi); }
+        }
+        const del = el('button', 'cm-btn ghost cm-pfldel', '✕'); del.type = 'button'; del.title = 'Remove this condition'; del.setAttribute('aria-label', del.title); del.addEventListener('click', () => { F.c.splice(i, 1); draw(); }); r.append(del);
+        box.append(r);
+      });
+      const add = el('button', 'cm-btn ghost', '＋ Add condition'); add.type = 'button'; add.addEventListener('click', () => { F.c.push({ f: 'country', o: 'out', v: [] }); draw(); });
+      const foot = el('div', 'cm-pflfoot'); const clr = el('button', 'cm-btn ghost', 'Clear filters'); clr.type = 'button'; clr.addEventListener('click', () => { dash.setParams({ pfl: '' }); closeSheet(); pflRedraw(); });
+      const ap = el('button', 'cm-btn', 'Apply'); ap.type = 'button'; ap.addEventListener('click', () => { const c = F.c.filter(x => /empty|full/.test(x.o) || (Array.isArray(x.v) ? x.v.length : String(x.v ?? '').trim() !== '')); dash.setParams({ pfl: c.length ? JSON.stringify({ m: F.m, c }) : '' }); closeSheet(); pflRedraw(); say(c.length ? `⚙ Filter on — ${c.length} condition${c.length > 1 ? 's' : ''}` : '⚙ No filter'); });
+      foot.append(clr, ap); body.append(box, add, foot);
+    };
+    draw();
+  }, { center: !0, wide: !0 });
+}
+
 function drawPartners() {
   dash.data('contact_history');
  // ask for real-contact history up front so it loads alongside the list
@@ -2784,6 +2864,8 @@ function drawPartners() {
       psort: t
     })
   })))), $.append(L);
+  // 🔴 House: hide the countries where Next already has a distributor (People never get them for Next) — like NetHunt's NEXT view filter
+  window.__cm2 && window.__cm2.isHouse() && window.__cm2.nextHideToggle && [ 'next', 'all' ].includes(p === 'next' ? 'next' : u.all ? 'all' : '') && (() => { const on = window.__cm2.nextHouseHide(); const nb = el('button', 'cm-chip cm-nexthide' + (on ? ' on' : ''), on ? '🔴 Next countries: hidden' : '🔴 Next countries: shown'); nb.type = 'button'; nb.setAttribute('aria-pressed', String(on)); nb.title = `${on ? 'Hidden' : 'Shown'}: the ${window.__cm2.nextDist().size} countries where Next Shoulder already has a distributor — tap to ${on ? 'show' : 'hide'} them (Power hour too). People never get them for Next.`; nb.addEventListener('click', () => window.__cm2.nextHideToggle()); const ne = el('button', 'cm-chip cm-nextedit', '✎'); ne.type = 'button'; ne.title = 'Add or remove countries where Next has a distributor (for the whole team)'; ne.setAttribute('aria-label', ne.title); ne.addEventListener('click', () => window.__cm2.nextDistEdit(ne)); $.append(nb, ne); })();
   {
     const t = new Set(('ok' === o.status ? o.data : []).map(t => t.id)), e = dash.data('deals'), n = ('ok' === e.status ? e.data : []).filter(e => dealOpen(e) && String(e.company_ids).split('|').some(e => t.has(e)));
     if (n.length) {
@@ -2844,7 +2926,9 @@ function drawPartners() {
     $.append(cb);
   }
   window.__cm3 && window.__cm3.waAllBtn && $.append(window.__cm3.waAllBtn()); // 🟢 check every number of this country's companies for WhatsApp
-  const A = ('ok' === o.status ? o.data : []).filter(t => t[`score_${p}`] > 0 && t[`stage_${p}`] < 6 && ('all' === v || t[`seg_brands_${p}`] > 0) && !(dash.params().phide && isPerson(t.company)) && (!window.__cm2 || window.__cm2.passAssign(t.id)) && !(window.__cm2 && window.__cm2.nextHide && window.__cm2.nextHide(dash.params().iso, p, t.id)) && ('motion' === p || t.cat_ok || t.ortho_rel || t[`score_${p}`] >= 60 || t[`stage_${p}`] >= 3) && !offScope(p, t.category, t[`stage_${p}`])).map(t => {
+  { const F = pflGet(); const fb = el('button', 'cm-chip cm-pflbtn' + (F ? ' on' : ''), F ? `⚙ Filter · ${F.c.length}` : '⚙ Filter'); fb.type = 'button'; fb.title = F ? `Filtered: ${pflText(F)}` : 'Filter by any field, like NetHunt (Category, Country, Status, Tags, Brand…)'; fb.setAttribute('aria-label', fb.title); fb.addEventListener('click', () => openPflEditor(fb)); $.append(fb);
+    if (F) { const ln = el('div', 'cm-pflsum'); ln.append(el('span', null, `⚙ ${pflText(F)}`)); const x = el('button', 'cm-btn ghost', '✕ clear'); x.type = 'button'; x.addEventListener('click', () => { dash.setParams({ pfl: '' }); pflRedraw(); }); ln.append(x); $.append(ln); } }
+  const A = ('ok' === o.status ? o.data : []).filter(t => pflOk(t) && t[`score_${p}`] > 0 && (t[`stage_${p}`] < 6 || 'status' === C) && /* sorted by status, customers show too — at the top */ ('all' === v || t[`seg_brands_${p}`] > 0) && !(dash.params().phide && isPerson(t.company)) && (!window.__cm2 || window.__cm2.passAssign(t.id)) && !(window.__cm2 && window.__cm2.nextHide && window.__cm2.nextHide(t.iso || dash.params().iso, p, t.id)) && ('motion' === p || t.cat_ok || t.ortho_rel || t[`score_${p}`] >= 60 || t[`stage_${p}`] >= 3) && !offScope(p, t.category, t[`stage_${p}`])).map(t => {
     const rc = realContact(t.id);
     const pt = 'near' === C ? companyPoint(t.id, t.city) : null;
     const mt0 = 'meeting' === C ? nextMeetingAt(t.id) : null;
@@ -2856,8 +2940,9 @@ function drawPartners() {
     });
   }).sort((t, e) => (window.__cm2 ? window.__cm2.isIgnored(t.id) - window.__cm2.isIgnored(e.id) : 0) || (// ignored companies go to the bottom
   'next' === C && window.__cm2 ? window.__cm2.phRank(t.id) - window.__cm2.phRank(e.id) : 0) || // Do next: exactly the Power hour order
+  ('status' === C ? statusRankCo(t, S(t) || t.status_all) - statusRankCo(e, S(e) || e.status_all) : 0) || // sorted by status: the status decides, however hot the others are
   (e.__rc && e.__rc.pending ? 1 : 0) - (t.__rc && t.__rc.pending ? 1 : 0) || (// they wrote and nobody answered: top
-  'status' === C ? statusRank(S(t) || t.status_all) - statusRank(S(e) || e.status_all) || E(e) - E(t) || S(t).localeCompare(S(e)) : 'recent' === C ? (t.__days ?? 1e9) - (e.__days ?? 1e9) : 'near' === C ? (t.__km ?? 1e9) - (e.__km ?? 1e9) : 'meeting' === C ? (t.__mt ?? 9e15) - (e.__mt ?? 9e15) : 0) || e[`score_${p}`] - t[`score_${p}`]), N = cityPick(A), // a city from another country never empties the list
+  'status' === C ? statusRankCo(t, S(t) || t.status_all) - statusRankCo(e, S(e) || e.status_all) || E(e) - E(t) || S(t).localeCompare(S(e)) : 'recent' === C ? (t.__days ?? 1e9) - (e.__days ?? 1e9) : 'near' === C ? (t.__km ?? 1e9) - (e.__km ?? 1e9) : 'meeting' === C ? (t.__mt ?? 9e15) - (e.__mt ?? 9e15) : 0) || e[`score_${p}`] - t[`score_${p}`]), N = cityPick(A), // a city from another country never empties the list
   M = N ? A.filter(t => cityIn(t, N)) : A, T = partnersAll || N ? M : M.slice(0, 15), D = new Map(rowsOf('companies').map(t => [ t.id, t ])), I = T.map(t => t.id);
   I.length && JSON.stringify(dash.params().pcids || []) !== JSON.stringify(I) && dash.setParams({
     pcids: I
@@ -2884,7 +2969,10 @@ function drawPartners() {
   const O = t => {
     t.childNodes.length && t.append(' · ');
   };
+  // sorted by status: a thin line in the status' colour where each status starts (Kavi, 8 Nov 2026)
+  const stSort = dash.params().psort === 'status', stRow = t => statusRankCo(t, S(t) || t.status_all); let stPrev = null;
   T.forEach((o, l) => {
+    if (stSort) { const rk = stRow(o); if (rk !== stPrev) { const ln = el('div', 'cm-stsep'); ln.style.background = statusColor(rk); ln.setAttribute('aria-hidden', 'true'); stPrev === null ? ln.classList.add('first') : 0; n.append(ln); stPrev = rk; } }
     const d = `id=${enc(o.id)}`, m = el('div', 'cm-partner'), h = el('button', 'cm-co pn', o.company);
     h.type = 'button', h.dataset.openCompany = o.id, mark(h, 'partners', 'company', d);
     const y = mark(el('button', 'sc', String(o[`score_${p}`])), 'partners', `score_${p}`, d);
@@ -4342,10 +4430,12 @@ const sheet = qs('#cm-sheet');
 let sheetDraw = null, sheetFor = null, sheetAt = null;
 // the open pop-up, so another one (e.g. ✉ email from Power hour) can hand back to it afterwards — same company, same place in the queue
 let sheetCur = null;
-const sheetSnap = () => sheet.hidden || !sheetCur ? null : { ...sheetCur, title: [ ...qs('#cm-sheet-title').childNodes ].filter(x => x.nodeType === 3).map(x => x.nodeValue).join('').trim(), top: qs('.sb', sheet).scrollTop }; // title text only — the chips in it come back by themselves
+const sheetSnap = () => sheet.hidden || !sheetCur ? null : { ...sheetCur, title: [ ...qs('#cm-sheet-title').childNodes ].filter(x => x.nodeType === 3).map(x => x.nodeValue).join('').trim(), tnodes: [ ...qs('#cm-sheet-title').childNodes ], top: qs('.sb', sheet).scrollTop }; // title text + the title itself (Power hour's ⚡ marker, flag, local time…) only — the chips in it come back by themselves
 function sheetRestore(s) {
+  phStash = null;
   if (!s) return closeSheet();
-  closeSheet(); openSheet(s.e, s.n, s.a, s.o); qs('#cm-sheet-title').textContent = s.title || s.n;
+  closeSheet(); openSheet(s.e, s.n, s.a, s.o); const tt = qs('#cm-sheet-title');
+  s.tnodes && s.tnodes.length ? tt.replaceChildren(...s.tnodes) : (tt.textContent = s.title || s.n); // Power hour keeps its ⚡ title, so the next email returns to it too
   const r = qs('.sb', sheet); setTimeout(() => { r.scrollTop = s.top || 0; }, 0);
 }
 
@@ -4384,9 +4474,14 @@ function closeSheet() {
   t;
 }
 
+// Power hour replaced by another pop-up (an email, a draft, templates…): remember where it was, so sending the email can bring it back
+let phStash = null;
 function openSheet(e, n, a, o = {}) {
   if (sheetFor === e && !sheet.hidden) return void closeSheet();
-  closeSheet(), hidePop(), sheetCur = { e, n, a, o }, sheetFor = e, e.setAttribute('aria-expanded', 'true'), 
+  const prev = !sheet.hidden && sheetCur;
+  if (!sheet.hidden && sheetCur && /^⚡/.test(qs('#cm-sheet-title').textContent || '') && !/^⚡/.test(String(n || ''))) { const w = qs('#cm-sheet .cm-phwho [data-open-company]'); phStash = { s: sheetSnap(), cid: w ? w.dataset.openCompany : '', at: Date.now(), over: 'next' }; }
+  closeSheet(), hidePop(), sheetCur = { e, n, a, o },
+  phStash && (phStash.over === 'next' || prev && prev === phStash.over) && !/^⚡/.test(String(n || '')) && (phStash.over = sheetCur), // the pop-up(s) opened from Power hour: ✕ on them goes back to it sheetFor = e, e.setAttribute('aria-expanded', 'true'), 
   sheetAt = recentPtr(), qs('#cm-sheet-title').textContent = n, sheet.classList.toggle('wide', !!o.wide), 
   sheet.classList.toggle('center', !!o.center), o.center && lockPage(!0);
   const s = qs('.sbar', sheet);
@@ -4399,18 +4494,26 @@ function openSheet(e, n, a, o = {}) {
   (s.querySelector('input') || qs('.sx', sheet)).focus();
 }
 
+// closing (✕ / Esc) a pop-up that had replaced Power hour — an email you did not send, templates, a draft — goes back to Power hour
+function closeOrBack() {
+  const p = phStash;
+  if (p && p.over === sheetCur && Date.now() - p.at < 30 * 6e4 && !/^⚡/.test(qs('#cm-sheet-title').textContent || '')) { sheetRestore(p.s); return null; }
+  phStash = null;
+  return closeSheet();
+}
+
 qs('.sx', sheet).addEventListener('click', () => {
-  const t = closeSheet();
+  const t = closeOrBack();
   t && t.focus();
 }), sheet.addEventListener('click', t => {
   t.target.closest('[data-open-company],[data-open-iso]') && !t.target.closest('.cm-cmpt thead') && setTimeout(closeSheet, 0);
 }), document.addEventListener('keydown', t => {
   if ('Escape' === t.key && !sheet.hidden && pop.hidden && cpop.hidden && (!t.defaultPrevented || !sheet.contains(t.target))) {
-    const t = closeSheet();
+    const t = closeOrBack();
     t && t.focus();
   }
 }), document.addEventListener('mousedown', t => {
-  sheet.hidden || sheet.contains(t.target) || sheetFor && sheetFor.contains(t.target) || pop.contains(t.target) || cpop.contains(t.target) || t.target.closest('.cm-combo ul, .cm-menu, [role="menu"], .cm-tip, .cm-fcside') || closeSheet();
+  sheet.hidden || sheet.contains(t.target) || sheetFor && sheetFor.contains(t.target) || pop.contains(t.target) || cpop.contains(t.target) || t.target.closest('.cm-combo ul, .cm-menu, [role="menu"], .cm-tip, .cm-fcside, #cm-pobar, #cm-toast, #cm-maildock') || (phStash = null, closeSheet()); // the “did you send it?” bar and the toast never close Power hour
 }), window.addEventListener('resize', placeSheet);
 
 let phTemplates = {};
@@ -5600,7 +5703,7 @@ window.cmOpenLeads = (t, e) => {
 
 let viewsDoc = null, viewsList = null, viewsNote = '', impRun = null, impArmed = 0;
 
-const VIEW_KEYS = [ 'view', 'iso', 'isos', 'glabel', 'tags', 'origin', 'seg', 'ctab', 'csub', 'pfit', 'pstat', 'psort', 'pcity', 'ours', 'mseg', 'stale', 'cid', 'from', 'brand', 'bq1', 'bq2', 'bcountry', 'cmp' ], viewParams = () => {
+const VIEW_KEYS = [ 'view', 'iso', 'isos', 'glabel', 'tags', 'origin', 'seg', 'ctab', 'csub', 'pfit', 'pstat', 'psort', 'pcity', 'ours', 'mseg', 'stale', 'cid', 'from', 'brand', 'bq1', 'bq2', 'bcountry', 'cmp', 'pfl' ], viewParams = () => {
   const t = dash.params(), e = {};
   return VIEW_KEYS.forEach(n => {
     null == t[n] || Array.isArray(t[n]) && !t[n].length || (e[n] = t[n]);
@@ -7346,6 +7449,9 @@ window.__cm = Object.defineProperties({
   sheetRestore: {
     get: () => sheetRestore
   },
+  phBack: {
+    get: () => cid => { const p = phStash; if (!p || Date.now() - p.at > 30 * 6e4 || cid && p.cid && cid !== p.cid) return null; phStash = null; return p.s; }
+  },
   flag: {
     get: () => flag
   },
@@ -7375,6 +7481,9 @@ window.__cm = Object.defineProperties({
   },
   companyById: {
     get: () => companyById
+  },
+  pflOk: {
+    get: () => pflOk
   },
   drawPartners: {
     get: () => drawPartners

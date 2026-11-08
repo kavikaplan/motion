@@ -952,7 +952,7 @@ ${G.map((g) => `<h2 class="c">${C.flag(g.iso) || ''} ${esc(g.name)}</h2>${g.rows
       C.openMenu(pb, P.map(t => ({
         icon: '📞',
         label: t,
-        sub: C.CAN_CALL ? 'call' : 'copy the number',
+        sub: '',
         act: () => C.cmCopyNum(t)
       })));
     });
@@ -979,17 +979,17 @@ ${G.map((g) => `<h2 class="c">${C.flag(g.iso) || ''} ${esc(g.name)}</h2>${g.rows
         C.openMenu(wb, [ ...W.map(t => ({
           icon: '💬',
           label: t,
-          sub: 'open WhatsApp',
+          sub: '',
           act: () => go(t)
         })), ...W.map(t => ({
           icon: '✕',
           label: `${t} isn’t on WhatsApp`,
-          sub: 'stop showing WhatsApp for it',
+          sub: '',
           act: () => C.markNoWa(t)
         })), ...P.filter(t => C.isNoWa && C.isNoWa(t)).map(t => ({
           icon: '↺',
           label: `${t} — WhatsApp again`,
-          sub: 'it was marked not on WhatsApp',
+          sub: '',
           act: () => C.unmarkNoWa(t)
         })) ]);
       });
@@ -3539,8 +3539,8 @@ ${notes}`;
   // the 📋 button: a menu — open ChatGPT / Claude / Gemini with the prompt copied (and prefilled where the app allows), or paste the answer back
   function aiCopyBtn(cls, getPrompt, onPaste) { const C = __cm; const b = C.el('button', cls || 'cm-chip', '📋'); b.type = 'button'; b.title = 'Use your own ChatGPT / Claude / Gemini: copy the prompt, open the app, paste the answer back'; b.setAttribute('aria-label', b.title);
     b.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation();
-      C.openMenu(b, [ ...AI_APPS.map(([k, ic, l, url]) => ({ icon: ic, label: `Copy for ${l}`, sub: k === 'gemini' ? 'opens Gemini — paste (Ctrl/⌘ V) and send' : 'opens it with the prompt filled in', act: async () => { const q = getPrompt(); await copyText(q); C.uiFlags = { ...(C.uiFlags || {}), aiApp: k }; window.open(k !== 'gemini' && q.length < 6000 ? url(q) : url(''), '_blank', 'noopener'); C.say(`📋 Prompt copied — ${k === 'gemini' ? 'paste it in Gemini, ' : ''}then copy ${l}’s answer and tap 📋 → Paste answer`); } })),
-        { icon: '📥', label: 'Paste answer', sub: 'puts the copied answer in the box (↶ undo)', act: async () => { let t = ''; try { t = await navigator.clipboard.readText(); } catch { t = window.prompt('Paste the answer here') || ''; } t = String(t).trim(); if (!t) { C.say('Nothing copied yet — copy the answer in ChatGPT / Claude / Gemini first', !0); return; } onPaste(t.replace(/^```[a-z]*\n?|```$/g, '').trim()); } } ]); });
+      C.openMenu(b, [ ...AI_APPS.map(([k, ic, l, url]) => ({ icon: ic, label: `Copy for ${l}`, act: async () => { const q = getPrompt(); await copyText(q); C.uiFlags = { ...(C.uiFlags || {}), aiApp: k }; window.open(k !== 'gemini' && q.length < 6000 ? url(q) : url(''), '_blank', 'noopener'); C.say(`📋 Prompt copied — ${k === 'gemini' ? 'paste it in Gemini, ' : ''}then copy ${l}’s answer and tap 📋 → Paste answer`); } })),
+        { icon: '📥', label: 'Paste answer', act: async () => { let t = ''; try { t = await navigator.clipboard.readText(); } catch { t = window.prompt('Paste the answer here') || ''; } t = String(t).trim(); if (!t) { C.say('Nothing copied yet — copy the answer in ChatGPT / Claude / Gemini first', !0); return; } onPaste(t.replace(/^```[a-z]*\n?|```$/g, '').trim()); } } ]); });
     return b; }
   // ↻ rewrite what is already written — never adds facts, keeps the language unless asked
   const POLISH = [ [ 'improve', '✨', 'Improve', 'simpler, more direct, still yours' ], [ 'short', '✂️', 'Shorter', 'same points, half the words' ], [ 'formal', '🎩', 'More formal', 'polite business tone' ], [ 'friendly', '🙂', 'Friendlier', 'warm, personal' ], [ 'grammar', '🔤', 'Fix spelling & grammar only', 'nothing else changes' ] ];
@@ -3563,7 +3563,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     const seen = new Set(); const L = []; const opt = (label, t) => { if (seen.has(t) || t < Date.now() + 6e4) return; seen.add(t); const ln = line(t); L.push({ icon: '🕒', label, sub: ln.charAt(0).toUpperCase() + ln.slice(1), act: () => onPick(t) }); };
     if (tz) { const loc = new Date(Date.now() + tzOffsetMs(tz, Date.now())); const h = loc.getUTCHours(); const work = ![0, 6].includes(loc.getUTCDay()); work && h < 8 && opt('Their morning, today', atLocal(tz, 0, 9)); work && h < 13 && opt('Their afternoon, today', atLocal(tz, 0, 14)); opt('Their next working morning', atLocal(tz, 1, 9, !0)); opt('Their next working afternoon', atLocal(tz, 1, 14, !0)); }
     opt('In 1 hour', Math.ceil((Date.now() + 36e5) / 3e5) * 3e5); opt('Tomorrow morning', atLocal(myTz, 1, 8)); new Date().getDay() !== 0 && opt('Monday morning', atLocal(myTz, ((8 - new Date().getDay()) % 7) || 7, 9)); /* on Sunday, tomorrow morning is Monday morning */
-    L.push({ icon: '📅', label: 'Pick date & time…', sub: 'in your time', act: () => custom && custom() }); C.openMenu(anchor, L); }
+    L.push({ icon: '📅', label: 'Pick date & time…', act: () => custom && custom() }); C.openMenu(anchor, L); }
   const el0 = (...a) => __cm.el(...a);
   // the pop-up
   // ---- ✉ rich email editor: paste or drag images and GIFs, bold/align/lists/links, the signature inside the same white “paper” and editable ----
@@ -3660,11 +3660,25 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       // the email as it goes out: our images become inline (cid:) pictures inside the message
       out: () => { ed.querySelectorAll('img.sel').forEach((x) => x.classList.remove('sel')); const inline = []; const body = imgsToCid(mlSafeHtml(ed.innerHTML), inline); const sig = sigOn ? imgsToCid(mlSafeHtml(sg.innerHTML), inline) : ''; return { body, sig, inline }; } };
   }
+  // ✔ review before an email goes out (Kavi, 7 Nov 2026): the sender fits the brand · the subject names the company · what the text says is
+  // attached is attached. Each problem is a warning: Send anyway, or Back to edit.
+  const ML_KIND = [ [ /cat[aá]log|katalog/i, 'a catalogue', /catal|katalog/i ], [ /brochure|folleto|bro[sş][uü]r/i, 'a brochure', /brochure|folleto|bro[sş][uü]r/i ], [ /price ?list|lista de precios|fiyat listesi|pricelist/i, 'a price list', /price|precio|fiyat|tarif/i ], [ /\bdxf\b|template|plantilla/i, 'a DXF / template', /dxf|templ|plantilla/i ] ];
+  function mlReview(st, o, brand, body) { const W = []; const from = String(st.from || st.mailbox || '').toLowerCase().trim(); const txt = `${st.subject || ''}\n${body || st.body || ''}`;
+    if (/^duni/.test(brand) && !/@(duni-tech\.com|oliga\.com\.tr)$/.test(from)) W.push([ '✉', `This is Dunitech outreach — it should go from an @duni-tech.com or @oliga.com.tr address (now: ${from || 'none'})` ]);
+    if (/^next/.test(brand) && !/@[^@]*next[^@]*$/.test(from)) W.push([ '✉', `This is Next outreach — it should go from an @next… address (now: ${from || 'none'})` ]);
+    const co = String(o.company || (o.cid && __cm.companyById ? (__cm.companyById(o.cid) || {}).company : '') || '').trim();
+    if (co && !o.threadId) { const ct = dupTok(co).filter((w) => w.length >= 3), sj = new Set(dupTok(st.subject)); ct.length && !ct.some((w) => sj.has(w)) && W.push([ '🏢', `The subject doesn't name ${co}${st.subject ? ` (“${st.subject.slice(0, 60)}”)` : ' — it is empty'}` ]); }
+    const names = [ ...(st.files || []).map((k) => String(k).split('/').pop()), ...(st.uploads || []).map((u) => u.name || '') ].filter(Boolean);
+    const says = /\b(attach(ed|ment|ing)?|enclosed|adjunt[oa]s?|adjunto|ekte|ekli|ek olarak|in allegato|anbei|ci-joint)\b/i.test(txt) || ML_KIND.some(([re]) => re.test(body || st.body || ''));
+    if (says && !names.length) W.push([ '📎', 'The email says something is attached, but no file is attached' ]);
+    else if (names.length) ML_KIND.forEach(([re, what, fileRe]) => { re.test(body || st.body || '') && !names.some((n) => fileRe.test(n)) && W.push([ '📎', `The text mentions ${what}, but the attached file${names.length > 1 ? 's are' : ' is'}: ${names.join(', ')}` ]); });
+    return W; }
     async function openMail(o = {}) {
     const C = __cm;
     const el = C.el;
     // opened from Power hour: after sending, go back to the same company there
-    const back = o.back || ((() => { const sh = document.getElementById('cm-sheet'); return sh && !sh.hidden && /^⚡/.test((document.getElementById('cm-sheet-title') || {}).textContent || ''); })() && C.sheetSnap ? C.sheetSnap() : null); // Power hour is open (single email link or the “choose an address” menu)
+    let back = o.back || ((() => { const sh = document.getElementById('cm-sheet'); return sh && !sh.hidden && /^⚡/.test((document.getElementById('cm-sheet-title') || {}).textContent || ''); })() && C.sheetSnap ? C.sheetSnap() : null); // Power hour is open (single email link or the “choose an address” menu)
+    const X2 = window.__cm2x || {}; const brand0 = String(o.brand || (X2.miBrand && X2.miBrand()) || (o.cid && X2.bestBrand ? X2.bestBrand(o.cid) : '') || '').toLowerCase().replace(/[^a-z]/g, ''); /* 'Dunitech' → 'dunitech' */ // which brand this email is for (Power hour's brand, the page's brand, or the company's best)
     await Promise.all([ ML.acc ? ML.acc : mlAccounts(), mlFiles(), mlTeamTpl() ]);
     const st = {
       to: o.to || '',
@@ -3689,7 +3703,9 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       st.from = def.email;
       st.mailbox = def.mailbox;
     }
-    C.openSheet(o.anchor || document.body, o.title || (o.threadId ? '↩ Reply' : '✉ New email'), body => {
+    // from Power hour: the email opens docked on the right (like Gmail), so Power hour stays in view; ⤢ makes it big
+    const dockOn = !!back && !o.full; const mlTitle = o.title || (o.threadId ? '↩ Reply' : '✉ New email');
+    const mlDraw = body => {
       if (ML.acc && ML.acc.code === 'not_configured') {
         body.append(el('div', 'hint', 'Gmail isn’t set up on the website yet (Google keys in Cloudflare).'));
         return;
@@ -3846,7 +3862,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
         if (!txt) { if (o.cid || o.quote || st.tplBody) { st.rewrite = !0; write(st.tplBody); } else { C.say('Write something first (or use ✍️ Write from my notes)', !0); ta.focus(); } return; }
         C.openMenu(rw, [ ...POLISH.map(([k, ic, l, sub]) => ({ icon: ic, label: l, sub, act: async () => { if (st.aiBusy) return; st.aiBusy = !0; rw.disabled = !0; const before = ta.value; ai0.textContent = `${ic} rewriting…`; ta.classList.add('cm-aiwait');
           try { const out = await polishText(before, k, { kind: 'email', engine: eng.value }); if (!out) throw new Error('empty answer'); st.notes = before; ta.value = out; st.body = out; st.typed = !0; und.textContent = '↶ Undo'; und.hidden = !1; ai0.textContent = `${ic} ${l.toLowerCase()} by ${aiText.last || 'AI'} — check before sending`; }
-          catch (e) { ai0.textContent = `Couldn’t rewrite (${e.message || e})`; } st.aiBusy = !1; rw.disabled = !1; ta.classList.remove('cm-aiwait'); } })), ...(o.cid || o.quote ? [ { icon: '🔄', label: 'New draft from the conversation', sub: 'replaces the text', act: () => { st.rewrite = !0; write(st.tplBody); } } ] : []) ]); });
+          catch (e) { ai0.textContent = `Couldn’t rewrite (${e.message || e})`; } st.aiBusy = !1; rw.disabled = !1; ta.classList.remove('cm-aiwait'); } })), ...(o.cid || o.quote ? [ { icon: '🔄', label: 'New draft from the conversation', act: () => { st.rewrite = !0; write(st.tplBody); } } ] : []) ]); });
       cl.addEventListener('click', () => {
         ta.value = '';
         st.body = '';
@@ -3956,10 +3972,18 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       const sb = el('button', 'cm-btn', '➤ Send');
       sb.type = 'button';
       const sIso = () => (C.companyById && (C.companyById(o.cid) || {}).iso) || o.iso || dash.params().iso || ''; // the recipient company's country (their time zone)
-      const doSend = async (sendAt) => {
+      // the review stays on screen even if the window redraws (st.rev lives with the draft)
+      const showRev = () => { const R = st.rev; if (!R) return; body.querySelectorAll('.cm-mlrev').forEach((x) => x.remove()); const W = R.W; const pn = el('div', 'cm-mlrev'); pn.setAttribute('role', 'alert'); pn.append(el('b', null, '⚠ Check before sending'));
+        W.forEach(([ic, t]) => pn.append(el('div', 'cm-mlrevl', `${ic} ${t}`)));
+        const go = el('button', 'cm-btn', R.sendAt ? '🕒 Schedule anyway' : '➤ Send anyway'); go.type = 'button'; const bk = el('button', 'cm-btn ghost', '← Back to edit'); bk.type = 'button';
+        const done = () => { st.rev = null; pn.remove(); act.hidden = !1; }; go.addEventListener('click', () => { done(); doSend(R.sendAt, !0); }); bk.addEventListener('click', () => { done(); const f = W.some(([ic]) => ic === '🏢') ? suI : ta; f && f.focus && f.focus(); });
+        const bb = el('div', 'cm-mlrevb'); bb.append(bk, go); pn.append(bb); act.hidden = !0; act.before(pn); bk.focus(); };
+      const doSend = async (sendAt, force) => {
         if (st.sending) return;
         if (o.cid) { const fv = coFit(o.cid); if (fv.fit === 'poor' && !window.confirm(`🔴 ${fv.why}${fv.quote ? `\n“${fv.quote}”` : ''}\n\nSend anyway?`)) return; }
-        if (/\b(attach|attached|attachment|catalog|catalogue|cat[aá]logo|price ?list|lista de precios|adjunt|brochure|folleto|ekte|katalog)/i.test(`${st.subject || ''} ${st.body || ''}`) && !(st.files || []).length && !(st.uploads || []).length && !window.confirm('The email mentions an attachment or catalogue, but nothing is attached. Send anyway?')) return;
+        if (!emailsIn(st.to).length) { C.say('Add who it goes to', !0); return; }
+        // ✔ review before send: sender for the brand · subject names this company · “attached” with a file — warn, then Send anyway or Back to edit
+        if (!force) { let W = []; try { W = mlReview(st, o, brand0, ta.value); } catch (e) { window.__cmDbg && window.__cmDbg(e, 'mail review'); console.warn('[medint:mail review]', e && e.message); } if (W.length) { st.rev = { W, sendAt }; showRev(); return; } }
         if (!emailsIn(st.to).length) {
           C.say('Add who it goes to', !0);
           return;
@@ -4006,7 +4030,8 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
             text: `${st.subject}\n\n${st.body}`.slice(0, 4e3)
           });
           C.say(r.scheduled ? `🕒 Scheduled for ${fmtAt(r.sendAt)} — see 📥 Inbox → Scheduled (it goes into the Log when it is sent)` : `✉ Sent to ${emailsIn(st.to).join(', ')}`); r.scheduled && (IB.sched = null);
-          back ? C.sheetRestore(back) : C.closeSheet(); // from Power hour: back to the same company
+          back = back || (C.phBack && C.phBack(o.cid || '')); // opened from a draft / templates pop-up that had replaced Power hour
+          dockOn ? mlDockClose() : back ? C.sheetRestore(back) : C.closeSheet(); // from Power hour: it was docked beside it — Power hour never left
           o.onSent && o.onSent(r);
         } catch (e) {
           st.sending = !1;
@@ -4054,14 +4079,23 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       });
       act.append(sb, sch, sv, pk);
       body.append(act);
+      st.rev && showRev();
       setTimeout(() => {
         (o.threadId ? ta : st.to ? suI : toI).focus();
       }, 30);
-    }, {
+    };
+    dockOn ? mlDock(mlTitle, mlDraw) : C.openSheet(o.anchor || document.body, mlTitle, mlDraw, {
       center: !0,
       wide: !0
     });
   }
+  function mlDockClose() { const d = document.getElementById('cm-maildock'); d && d.remove(); document.body.classList.remove('cm-mdopen'); }
+  // Esc anywhere closes the docked email first (Power hour stays); a second Esc closes Power hour
+  document.addEventListener('keydown', (e) => { if (e.key !== 'Escape' || !document.getElementById('cm-maildock')) return; e.stopPropagation(); e.preventDefault(); mlDockClose(); }, !0);
+  function mlDock(title, draw) { const C = __cm; const el = C.el; mlDockClose(); const d = el('section', 'cm-maildock'); d.id = 'cm-maildock'; d.setAttribute('role', 'dialog'); d.setAttribute('aria-label', title);
+    const hd = el('header', 'cm-mdhd'); hd.append(el('b', null, title)); const mx = el('button', 'cm-mini', '⤢'); mx.type = 'button'; mx.title = 'Bigger / smaller'; mx.setAttribute('aria-label', mx.title); mx.addEventListener('click', () => { d.classList.toggle('max'); mx.textContent = d.classList.contains('max') ? '⤡' : '⤢'; });
+    const x = el('button', 'cm-mini', '✕'); x.type = 'button'; x.title = 'Close (the draft is lost)'; x.setAttribute('aria-label', 'Close'); x.addEventListener('click', mlDockClose); hd.append(mx, x);
+    const b = el('div', 'sb cm-mdbody'); d.append(hd, b); d.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); mlDockClose(); } }); document.body.append(d); document.body.classList.add('cm-mdopen'); draw(b); } // Power hour moves to the left (like 🔎 Find contacts)
   // every “email in Gmail” link in Medint opens the pop-up instead (website, once a mailbox is connected)
     window.addEventListener('click', e => {
     if (!mlOn()) return;
@@ -4190,7 +4224,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
         }
       };
       rw.title = 'Rewrite your message (improve, shorter, friendlier…) — or a new draft from the conversation';
-      rw.addEventListener('click', () => { const txt = ta.value.trim(); const regen = { icon: '🔄', label: 'New draft from the conversation', sub: 'replaces the text', act: () => { st.typed = !1; write(!0); } };
+      rw.addEventListener('click', () => { const txt = ta.value.trim(); const regen = { icon: '🔄', label: 'New draft from the conversation', act: () => { st.typed = !1; write(!0); } };
         if (!txt) { regen.act(); return; }
         C.openMenu(rw, [ ...POLISH.map(([k, ic, l, sub]) => ({ icon: ic, label: l, sub, act: async () => { ai0.textContent = `${ic} rewriting…`; try { const out = await polishText(txt, k, { kind: 'whatsapp', engine: (C.uiFlags || {}).aiEngine || '' }); if (out) { st.text = out; ta.value = out; st.typed = !0; upd(); ai0.textContent = `${ic} ${l.toLowerCase()} — check, then open WhatsApp`; } } catch (e) { ai0.textContent = `Couldn’t rewrite (${e.message || e})`; } } })), regen ]); });
       off.addEventListener('click', () => {
@@ -5087,7 +5121,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     .replace(/[ \t]+([,.!?;:])/g, '$1').replace(/[ \t]{2,}/g, ' ').replace(/^[ \t]+|[ \t]+$/gm, ''); }
   const cpFirst = (n) => { const t = String(n || '').trim().replace(/^(dr|dra|mr|mrs|ms|sr|sra|ing|lic|prof)\.?\s+/i, ''); return t.split(/\s+/)[0] || ''; };
   const cpOk = (e) => /^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[a-z]{2,}$/i.test(String(e || '').trim());
-  const CP_ST = { active: [ '▶', 'Sending', 'on' ], sending: [ '⏳', 'Sending now', 'on' ], paused: [ '⏸️', 'Paused', 'pz' ], stopped: [ '⏹️', 'Stopped', 'st' ], done: [ '✓', 'Finished', 'ok' ], bounced: [ '⚠', 'Bounced', 'bad' ], failed: [ '⚠', 'Failed', 'bad' ] };
+  const CP_ST = { draft: [ '📝', 'Draft', 'st' ], active: [ '▶', 'Sending', 'on' ], sending: [ '⏳', 'Sending now', 'on' ], paused: [ '⏸️', 'Paused', 'pz' ], stopped: [ '⏹️', 'Stopped', 'st' ], done: [ '✓', 'Finished', 'ok' ], bounced: [ '⚠', 'Bounced', 'bad' ], failed: [ '⚠', 'Failed', 'bad' ] };
   const CP_TOUCH = [ [ 'pause', '⏸️', 'Pause' ], [ 'continue', '▶', 'Continue' ], [ 'stop', '⏹️', 'Stop' ] ];
   const cpPill = (st, extra) => __cm.el('span', `cm-cppill s-${(CP_ST[st] || [])[2] || 'st'}`, `${(CP_ST[st] || [ '•' ])[0]} ${extra || (CP_ST[st] || [ '', st ])[1]}`);
   const cpTheir = (t, tz) => { if (!t) return ''; try { return new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: tz || undefined }); } catch { return fmtAt(t); } };
@@ -5123,12 +5157,19 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
 
   // ---------- 1 · the list ----------
   function cpListView(main) { const C = __cm; const el = C.el;
-    const hd = el('div', 'cm-cphd'); hd.append(el('h3', null, '📣 Campaigns')); const nw = el('button', 'cm-btn cm-cpnew', '＋ New campaign'); nw.type = 'button'; nw.addEventListener('click', () => { CP.draft = cpDraft([]); IB.view = 'campnew'; C.sheetDraw(); }); hd.append(nw); main.append(hd);
+    const hd = el('div', 'cm-cphd'); hd.append(el('h3', null, '📣 Campaigns')); const nw = el('button', 'cm-btn cm-cpnew', '＋ New campaign'); nw.type = 'button'; nw.addEventListener('click', () => { C.closeSheet(); openCampPage(C.curView() === 'country' ? dash.params().iso : ''); }); /* the 📣 Campaigns page: filter companies, tick them, then create (Kavi, 7 Nov 2026) */ hd.append(nw); main.append(hd);
     main.append(el('div', 'cm-cpsec', '📊 Mailbox load')); cpLoadPanel(main);
     main.append(el('div', 'cm-cpsec', '🗂 Your campaigns'));
     if (!CP.list) { main.append(el('div', 'hint', '⏳ Loading…')); cpLoadList().then(cpRedraw); return; } CP.err && main.append(el('div', 'mut', CP.err));
-    if (!CP.list.length) { main.append(el('div', 'cm-cpempty', '📣 No campaigns yet. Open a country’s company list, tick companies (or “Select all”), then tap 📣 Email campaign. Or tap ＋ New campaign and add companies by name.')); return; }
-    CP.list.forEach((c) => { const n = c.n || {}; const card = el('div', `cm-cpcard s-${(CP_ST[c.status] || [])[2] || 'st'}`); card.tabIndex = 0; card.setAttribute('role', 'button');
+    if (!CP.list.length) { main.append(el('div', 'cm-cpempty', '📣 No campaigns yet. Open a country’s company list, tick companies (or “Select all”), then tap 📣 Email campaign. Or tap ＋ New campaign to filter companies, pick them and start.')); return; }
+    // chips: All · ▶ Active · 📝 Draft · ⏸ Paused · ✓ Finished · ⏹ Stopped (only the ones there are)
+    const grp = (c) => (c.status === 'active' || c.status === 'sending' ? 'active' : c.status === 'draft' ? 'draft' : c.status === 'paused' ? 'paused' : c.status === 'stopped' ? 'stopped' : 'done');
+    const GR = [ [ 'active', '▶ Active' ], [ 'draft', '📝 Draft' ], [ 'paused', '⏸ Paused' ], [ 'done', '✓ Finished' ], [ 'stopped', '⏹ Stopped' ] ]; const cnt = {}; CP.list.forEach((c) => { cnt[grp(c)] = (cnt[grp(c)] || 0) + 1; });
+    CP.fst && !cnt[CP.fst] && (CP.fst = ''); const cr = el('div', 'cm-cpst');
+    [ [ '', 'All', CP.list.length ], ...GR.filter(([k]) => cnt[k]).map(([k, l]) => [ k, l, cnt[k] ]) ].forEach(([k, l, n]) => { const b = el('button', 'cm-chip' + ((CP.fst || '') === k ? ' on' : ''), `${l} ${n}`); b.type = 'button'; b.setAttribute('aria-pressed', String((CP.fst || '') === k)); b.addEventListener('click', () => { CP.fst = k; cpRedraw(); }); cr.append(b); });
+    main.append(cr);
+    const ord = Object.fromEntries(GR.map(([k], i) => [ k, i ]));
+    CP.list.filter((c) => !CP.fst || grp(c) === CP.fst).sort((a, b) => ord[grp(a)] - ord[grp(b)]).forEach((c) => { const n = c.n || {}; const card = el('div', `cm-cpcard s-${(CP_ST[c.status] || [])[2] || 'st'}`); card.tabIndex = 0; card.setAttribute('role', 'button');
       const top = el('div', 'top'); top.append(el('b', 'nm', c.name), cpPill(c.status === 'active' ? 'active' : c.status, c.status === 'active' ? 'Running' : null)); card.append(top);
       card.append(el('div', 'mut sub', `✉ ${c.sender}${c.sender !== c.mailbox ? ` (via ${c.mailbox})` : ''} · ${c.steps.length} email${c.steps.length === 1 ? '' : 's'} · started ${fmtAt(c.created)}${c.login ? ` · by ${c.login.split('@')[0]}` : ''}`));
       const tot = Math.max(1, (n.total || 0) * c.steps.length); const pct = Math.round(((n.emails || 0) / tot) * 100); const bar = el('div', 'cm-cpbar wide'); const f = el('i'); f.style.width = `${pct}%`; bar.append(f); card.append(bar);
@@ -5328,8 +5369,8 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     if (!by.size) main.append(el('div', 'hint', 'No one here.'));
     by.forEach((L, cid) => { const g = el('div', 'cm-cpco'); const gh = el('div', 'gh'); const r0 = L[0]; const nm = el('button', 'cm-co', r0.company || '—'); nm.type = 'button'; nm.dataset.openCompany = cid;
       const tch = (L.find((x) => x.on_touch) || {}).on_touch || ''; const mn = el('button', 'cm-mini', '⋯'); mn.type = 'button'; mn.title = 'This company'; mn.setAttribute('aria-label', `Actions for ${r0.company}`);
-      mn.addEventListener('click', () => C.openMenu(mn, [ { icon: '⏸️', label: 'Pause this company', act: () => who({ company: cid, action: 'pause' }, '⏸️ Paused') }, { icon: '▶', label: 'Continue this company', sub: 'from the next email; earlier interactions no longer count', act: () => who({ company: cid, action: 'continue' }, '▶ Continuing') }, { icon: '⏹️', label: 'Stop this company', act: () => who({ company: cid, action: 'stop' }, '⏹️ Stopped') },
-        ...CP_TOUCH.map(([v, i, l]) => ({ icon: (tch || '') === v ? '✓' : i, label: `On interaction: ${l}`, sub: v === 'pause' ? 'the default' : '', act: () => who({ company: cid, action: 'touch', value: v }, `✓ On interaction: ${l}`) })) ]));
+      mn.addEventListener('click', () => C.openMenu(mn, [ { icon: '⏸️', label: 'Pause this company', act: () => who({ company: cid, action: 'pause' }, '⏸️ Paused') }, { icon: '▶', label: 'Continue this company', act: () => who({ company: cid, action: 'continue' }, '▶ Continuing') }, { icon: '⏹️', label: 'Stop this company', act: () => who({ company: cid, action: 'stop' }, '⏹️ Stopped') },
+        ...CP_TOUCH.map(([v, i, l]) => ({ icon: (tch || '') === v ? '✓' : i, label: `On interaction: ${l}`,  act: () => who({ company: cid, action: 'touch', value: v }, `✓ On interaction: ${l}`) })) ]));
       gh.append(el('span', 'fl', C.flag(r0.iso) || '🏢'), nm, el('span', 'mut', [ r0.city, r0.country ].filter(Boolean).join(', ')), tch ? el('span', 'cm-cptag', `on interaction: ${(CP_TOUCH.find((x) => x[0] === tch) || [ '', '', tch ]).slice(1).join(' ')}`) : '', mn); g.append(gh);
       L.forEach((r) => { const rr = el('div', 'rr'); const dots = el('span', 'dots'); c.steps.forEach((_, k) => { const dd = el('i', k < r.step ? 'on' : ''); dd.title = k < r.step ? `${k ? `Follow-up ${k}` : 'Email 1'} sent` : 'not sent yet'; dots.append(dd); });
         rr.append(el('span', 'ic', r.kind === 'person' ? '👤' : '🏢'), el('span', 'nm', r.kind === 'person' ? (r.name || r.email) : 'Company email'), el('span', 'em', r.email), dots, cpPill(r.status), r.replied_at ? el('span', 'cm-cppill s-rp', '↩ replied') : '');
@@ -5396,8 +5437,10 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
   const caFields = [ [ 'status', 'Status', '📊 Status' ], [ 'next', 'NEXT Status', '🦾 NEXT status' ], [ 'motion', 'Motion Status', '⚙️ Motion status' ], [ 'cat', 'Category', '🗂 Category' ], [ 'tags', 'Tags', '🏷 Tags' ] ];
   function openCampPage(iso) { const C = __cm; dash.data('company_schema'); if (iso && !CA.isos.includes(iso)) { CA.isos = [ iso ]; CA.all = !1; } CA.sel = new Set(); caDraw(); if ((CA.isos.length || CA.all) && !CA.rows) caRun(); }
   function caClose() { const p = document.getElementById('cm-cpg'); p && p.remove(); document.getElementById('cm-lp') || document.body.classList.remove('cm-lp-on'); }
+  // tapping outside the dropdowns, or Esc, closes them
+  let caDdOn = !1; function caDdWire() { if (caDdOn) return; caDdOn = !0; document.addEventListener('pointerdown', (e) => { e.target.closest && e.target.closest('details.cm-cams') || document.querySelectorAll('details.cm-cams[open]').forEach((x) => { x.open = !1; }); }, !0); document.addEventListener('keydown', (e) => { e.key === 'Escape' && document.querySelectorAll('details.cm-cams[open]').forEach((x) => { x.open = !1; }); }); }
   // a dropdown with ticks that stays open while you tick (filters apply when you tap 🔎 Show companies)
-  function caMulti(label, opts, arr, onCh, mo = {}) { const C = __cm; const el = C.el; const d0 = el('details', 'cm-cams'); const sm = el('summary'); const txt = () => `${label}${arr.length ? ` · ${arr.length}` : ''}`; sm.textContent = txt(); arr.length && d0.classList.add('on'); d0.append(sm);
+  function caMulti(label, opts, arr, onCh, mo = {}) { const C = __cm; const el = C.el; const d0 = el('details', 'cm-cams'); d0.addEventListener('toggle', () => { d0.open && document.querySelectorAll('details.cm-cams[open]').forEach((x) => x !== d0 && (x.open = !1)); caDdWire(); if (d0.open) { const pn = d0.querySelector('.pan'); if (pn) { pn.style.left = ''; pn.style.right = ''; const r = pn.getBoundingClientRect(); r.right > window.innerWidth - 8 && (pn.style.left = 'auto', pn.style.right = '0'); } } }); /* one dropdown open at a time, kept inside the screen */ const sm = el('summary'); const txt = () => `${label}${arr.length ? ` · ${arr.length}` : ''}`; sm.textContent = txt(); arr.length && d0.classList.add('on'); d0.append(sm);
     const pan = el('div', 'pan'); let q0 = ''; const list = el('div', 'ls'); if (opts.length > 10) { const qi = el('input', 'cm-cpin'); qi.placeholder = '🔎 Search…'; qi.addEventListener('input', () => { q0 = qi.value.toLowerCase(); fillL(); }); pan.append(qi); }
     const fillL = () => { list.replaceChildren(); opts.filter(([v, l]) => !q0 || String(l).toLowerCase().includes(q0)).forEach(([v, l]) => { const lb = el('label'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = arr.includes(v); cb.addEventListener('change', () => { const i = arr.indexOf(v); cb.checked ? (i < 0 && arr.push(v)) : (i >= 0 && arr.splice(i, 1)); sm.textContent = txt(); d0.classList.toggle('on', arr.length > 0); onCh && onCh(); }); lb.append(cb, el('span', null, l)); list.append(lb); }); opts.length || list.append(el('div', 'mut sm', mo.loading ? '⏳ Loading the choices from NetHunt…' : mo.free ? 'No saved choices yet — type one below' : 'No choices found')); };
     fillL(); pan.append(list);
@@ -5460,6 +5503,83 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     L.length || list.append(el('div', 'hint', 'No company matches.')); p.append(list);
     if (L.length > CA.show) { const mo = el('button', 'cm-btn ghost', `Show more (${(L.length - CA.show).toLocaleString('en')})`); mo.type = 'button'; mo.addEventListener('click', () => { CA.show += 300; caDraw(); }); p.append(mo); }
     p.scrollTop = sc; }
+  // ===================== ➕ Add to Medint — the browser button (bookmark) =====================
+  // On any page (LinkedIn profile, company website, directory, exhibitor list…) the bookmark opens Medint in a small window with the
+  // page link, title, what you highlighted and the page text → /api/capture reads their website (enrichment) + one AI call → a company
+  // and/or a person to check and edit → NetHunt checked live (no second copy) → ➕ added, linked, logged as you.
+  const CAPV = 1;
+  function capBookmarklet() { const o = location.origin; return `javascript:(()=>{try{const s=String(getSelection()||'').slice(0,5000);const m=document.querySelector('meta[name=description],meta[property="og:description"]');const t=(document.body&&document.body.innerText||'').slice(0,14000);const d=JSON.stringify({v:${CAPV},u:location.href,t:document.title,d:m?m.content.slice(0,500):'',s:s,x:t});window.open('${o}/#capture='+encodeURIComponent(d),'medint_add','width=600,height=820,scrollbars=yes')}catch(e){alert('Medint: '+e.message)}})()`; }
+  function openCapHelp(anchor) { const C = __cm; const el = C.el; C.openSheet(anchor, '➕ Add to Medint from any web page', (b) => {
+    b.append(el('p', null, 'Drag this button to your bookmarks bar (once). Then on any page — a LinkedIn profile, a company website, a directory, an exhibitor list — click it: Medint reads the page and their website, finds emails and phones, checks NetHunt and adds the company and/or the person for you.'));
+    const a = el('a', 'cm-btn cm-capbm', '➕ Medint'); a.href = capBookmarklet(); a.title = 'Drag me to your bookmarks bar'; a.addEventListener('click', (e) => { e.preventDefault(); C.say('Drag the button to your bookmarks bar — clicking it here does nothing'); }); b.append(el('div', 'cm-capbmw', a));
+    b.append(el('p', 'mut', 'No bookmarks bar? Press Ctrl + Shift + B (Windows) or ⌘ + Shift + B (Mac). On LinkedIn, highlight the name, title and company first if the page is long.'));
+    const tl = el('div', 'cm-capurl'); const ui = el('input', 'cm-ibq'); ui.placeholder = 'Or paste a page link here to try it'; const go = el('button', 'cm-btn ghost', 'Read'); go.type = 'button'; go.addEventListener('click', () => { const v = ui.value.trim(); if (!/^https?:\/\//i.test(v)) { C.say('Paste a link starting with http', !0); return; } C.closeSheet(); openCapture({ u: v, t: '', d: '', s: '', x: '' }); }); tl.append(ui, go); b.append(tl);
+  }, { center: !0 }); }
+  const CAP = { d: null, r: null, busy: '', err: '', dup: null, done: null, addPerson: !0 };
+  function capFromHash(h0) { const h = typeof h0 === 'string' ? h0 : location.hash || ''; if (!/^#capture=/.test(h)) return; let d = null; try { d = JSON.parse(decodeURIComponent(h.slice(9))); } catch { d = null; } try { history.replaceState(null, '', location.pathname + location.search); } catch (_e) { location.hash = ''; } d && d.u && openCapture(d); }
+  async function openCapture(d) { const C = __cm; CAP.d = d; CAP.r = null; CAP.err = ''; CAP.dup = null; CAP.done = null; CAP.busy = '📖 Reading the page and their website…'; capDraw();
+    try { const r = await fetch('/api/capture', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: d.u, title: d.t, desc: d.d, sel: d.s, text: d.x }) }); const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`); CAP.r = j; }
+    catch (e) { CAP.err = e.message; CAP.busy = ''; capDraw(); return; }
+    const co = CAP.r.company || {}; co.iso = co.country ? (C.isoOfCountry(co.country) || '') : ''; co.category = /yes/i.test(co.ortho || '') ? 'Ortho' : ''; CAP.addPerson = !!(CAP.r.person && CAP.r.person.name);
+    CAP.busy = '🔎 Checking NetHunt…'; capDraw(); await capDup(); CAP.busy = ''; capDraw(); }
+  // NetHunt live: the company by name and by website; the person by email / LinkedIn / name
+  async function capDup() { const C = __cm; const co = CAP.r.company || {}, pe = CAP.r.person || {}; const out = { co: null, pe: null };
+    try { if (co.name) { const ex = await C.nhCall('search_records', { folderId: C.NH_FOLDER, text: co.name, limit: 5, fieldKeys: 'label' }); const k0 = dupTok(co.name).join(' '); out.co = ((ex && ex.records) || ex || []).find((r0) => { const n = dupTok((r0.fields || {}).Name || '').join(' '); return n === k0 || (n.length >= 6 && k0.length >= 6 && (n.includes(k0) || k0.includes(n))); }) || null; }
+      const dm = co.website ? regDomain(eqHost(co.website)) : ''; if (!out.co && dm && !PLATFORM.test(dm)) { const ex2 = await C.nhCall('search_records', { folderId: C.NH_FOLDER, text: dm, limit: 5, fieldKeys: 'label' }); out.co = ((ex2 && ex2.records) || ex2 || []).find((r0) => String((r0.fields || {}).Website || '').toLowerCase().includes(dm)) || null; }
+      const pq = pe.email || (pe.linkedin && pe.linkedin.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '')) || pe.name; if (pq) { const ex3 = await C.nhCall('search_records', { folderId: CT_ID, text: pq, limit: 5, fieldKeys: 'label' }); const L = (ex3 && ex3.records) || ex3 || []; out.pe = L.find((r0) => { const f = r0.fields || {}; const em = [].concat(f.Email || []).map((x) => String(x).toLowerCase()); return (pe.email && em.includes(String(pe.email).toLowerCase())) || (pe.linkedin && String(f.LinkedIn || '').includes(pe.linkedin.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, ''))) || dupTok(f.Name || '').join(' ') === dupTok(pe.name || '').join(' '); }) || null; } }
+    catch (e) { out.err = C.nhErr ? C.nhErr(e) : e.message; }
+    CAP.dup = out; }
+  function capClose() { const p = document.getElementById('cm-cap'); p && p.remove(); document.getElementById('cm-lp') || document.getElementById('cm-cpg') || document.body.classList.remove('cm-lp-on'); window.name === 'medint_add' && window.opener && setTimeout(() => { try { window.close(); } catch (_e) { /* not a popup */ } }, 50); }
+  function capDraw() { const C = __cm; const el = C.el; let p = document.getElementById('cm-cap'); if (!p) { p = el('div', 'cm-lp cm-cap'); p.id = 'cm-cap'; document.body.append(p); document.body.classList.add('cm-lp-on'); } p.replaceChildren();
+    const hd = el('header', 'cm-lphd'); const bk = el('button', 'cm-btn ghost', '✕ Close'); bk.type = 'button'; bk.addEventListener('click', capClose); hd.append(bk, el('h1', null, '➕ Add to Medint')); p.append(hd);
+    const d = CAP.d || {}; const src = el('a', 'cm-capsrc', d.t || d.u || ''); src.href = d.u || '#'; src.target = '_blank'; src.rel = 'noopener'; p.append(src);
+    if (CAP.busy) p.append(el('div', 'cm-capbusy', CAP.busy)); if (CAP.err) p.append(el('div', 'cm-err', `Not read: ${CAP.err}`));
+    const r = CAP.r; if (!r) return; const co = r.company || (r.company = {}); const pe = r.person || (r.person = {});
+    const allow = isHouse() ? null : allowedIsos();
+    if (CAP.done) { const ok = el('div', 'cm-capdone'); ok.append(el('b', null, `✓ ${CAP.done.text}`)); const op = el('button', 'cm-btn', '🏢 Open the company'); op.type = 'button'; op.addEventListener('click', () => { const id = CAP.done.id; capClose(); window.cmOpenCompany && window.cmOpenCompany(id); }); ok.append(op); p.append(ok); return; }
+    const fld = (o, k, lab, ph, ty) => { const w = el('label', 'cm-capf'); w.append(el('span', null, lab)); const i = el(ty === 'area' ? 'textarea' : 'input'); i.value = Array.isArray(o[k]) ? o[k].join(', ') : (o[k] || ''); i.placeholder = ph || ''; i.addEventListener('input', () => { o[k] = Array.isArray(o[k]) || /^(emails|phones)$/.test(k) ? i.value.split(/\s*[,;]\s*/).filter(Boolean) : i.value; }); w.append(i); return w; };
+    // 🏢 company
+    const cc = el('section', 'cm-capcard'); cc.append(el('h3', null, '🏢 Company'));
+    if (CAP.dup && CAP.dup.co) { const f = CAP.dup.co.fields || {}; const x = el('div', 'cm-capdup'); x.append(el('span', null, `✓ Already in NetHunt: ${f.Name || ''}${f.Status ? ` · ${f.Status}` : ''}`)); const o = el('button', 'cm-mini', 'Open'); o.type = 'button'; o.addEventListener('click', () => { capClose(); window.cmOpenCompany(CAP.dup.co.id); }); x.append(o); cc.append(x); }
+    cc.append(fld(co, 'name', 'Name', 'Company name'), fld(co, 'website', 'Website', 'https://…'));
+    const cw = el('label', 'cm-capf'); cw.append(el('span', null, 'Country')); const cs = el('select'); cs.append(new Option('— choose —', '')); C.rowsOf('countries').filter((c) => c.iso && (!allow || allow.has(c.iso))).sort((a, b) => String(a.country).localeCompare(String(b.country))).forEach((c) => cs.append(new Option(`${C.flag(c.iso) || ''} ${c.country}`, c.iso, !1, c.iso === co.iso))); cs.addEventListener('change', () => { co.iso = cs.value; co.country = (C.countryOfIso(cs.value) || {}).country || ''; }); cw.append(cs); cc.append(cw);
+    co.iso && allow && !allow.has(co.iso) && cc.append(el('div', 'cm-err', `${co.country} is not one of your countries — ask Kavi, or choose the right country.`));
+    cc.append(fld(co, 'city', 'City'), fld(co, 'phones', 'Phones', 'comma between them'), fld(co, 'emails', 'Emails', 'comma between them'), fld(co, 'linkedin', 'LinkedIn'), fld(co, 'facebook', 'Facebook'), fld(co, 'instagram', 'Instagram'), fld(co, 'what_they_do', 'What they do', '', 'area'));
+    const kw = el('label', 'cm-capf'); kw.append(el('span', null, 'Category')); const ks = el('select'); [ [ '', '— leave empty —' ], [ 'Ortho', 'Ortho' ], [ 'Not Ortho', 'Not Ortho' ] ].forEach(([v, l]) => ks.append(new Option(l, v, !1, v === (co.category || '')))); ks.addEventListener('change', () => { co.category = ks.value; }); kw.append(ks); cc.append(kw);
+    r.items && r.items.length && cc.append(el('p', 'mut', `🔎 From their website: ${r.items.filter((x) => /email|phone/.test(x.kind)).length} emails / phones${r.pages && r.pages.length ? ` on ${r.pages.length} page${r.pages.length > 1 ? 's' : ''}` : ''}`));
+    r.site_error && cc.append(el('p', 'mut', `Their website did not open: ${r.site_error}`));
+    p.append(cc);
+    // 👤 person
+    const pc = el('section', 'cm-capcard'); const ph = el('h3'); const pcb = el('input'); pcb.type = 'checkbox'; pcb.checked = CAP.addPerson; pcb.addEventListener('change', () => { CAP.addPerson = pcb.checked; }); const pl = el('label'); pl.append(pcb, ' 👤 Add this person'); ph.append(pl); pc.append(ph);
+    if (CAP.dup && CAP.dup.pe) { const x = el('div', 'cm-capdup'); x.append(el('span', null, `✓ Already in NetHunt: ${(CAP.dup.pe.fields || {}).Name || ''} — not added again`)); pc.append(x); }
+    pc.append(fld(pe, 'name', 'Name'), fld(pe, 'title', 'Title'), fld(pe, 'email', 'Email'), fld(pe, 'phone', 'Phone'), fld(pe, 'linkedin', 'LinkedIn'));
+    p.append(pc);
+    CAP.dup && CAP.dup.err && p.append(el('div', 'cm-err', `NetHunt check failed: ${CAP.dup.err}`));
+    const go = el('button', 'cm-btn cm-capgo', CAP.dup && CAP.dup.co ? `➕ Add to ${(CAP.dup.co.fields || {}).Name || 'the company in NetHunt'}` : '➕ Add to NetHunt'); go.type = 'button'; go.addEventListener('click', () => capAdd(go)); p.append(go);
+  }
+  async function capAdd(btn) { const C = __cm; const r = CAP.r; const co = r.company, pe = r.person; const allow = isHouse() ? null : allowedIsos();
+    const existing = CAP.dup && CAP.dup.co; if (!existing && !String(co.name || '').trim()) { C.say('Write the company name', !0); return; } if (!existing && !co.iso) { C.say('Choose the country', !0); return; } if (!existing && allow && !allow.has(co.iso)) { C.say(`${co.country} is not one of your countries`, !0); return; }
+    btn.disabled = !0; btn.textContent = 'Adding…'; const who = me().name || ''; const day = new Date().toISOString().slice(0, 10);
+    try { let id = existing && existing.id; let made = '';
+      if (!id) { const ctry = (C.countryOfIso(co.iso) || {}).country || co.country; const f = { Name: co.name.trim(), Country: [ ctry ], Status: 'Unprocessed', ...(co.city ? { City: [ co.city ] } : {}), ...(co.website ? { Website: co.website } : {}), ...([].concat(co.emails || []).length ? { Email: [].concat(co.emails).slice(0, 4) } : {}), ...([].concat(co.phones || []).length ? { 'Phone number': [].concat(co.phones).slice(0, 4) } : {}), ...(co.linkedin ? { LinkedIn: co.linkedin } : {}), ...(co.facebook ? { Facebook: co.facebook } : {}), ...(co.instagram ? { Instagram: co.instagram } : {}), ...(co.category ? { Category: co.category } : {}),
+          Notes: [ `Added from Medint ➕ browser button on ${day} by ${who}.`, `From: ${CAP.d.u}`, co.what_they_do && `What they do: ${co.what_they_do}`, co.address && `Address: ${co.address}` ].filter(Boolean).join('\n') };
+        let res; try { res = await C.nhCall('create_record', { folderId: C.NH_FOLDER, fieldKeys: 'label', fields: { ...f, Source: [ 'Browser' ] } }); } catch (_e) { res = await C.nhCall('create_record', { folderId: C.NH_FOLDER, fieldKeys: 'label', fields: f }); } // Source “Browser” when NetHunt accepts the new choice
+        id = res && (res.id || (res.record && res.record.id)); if (!id) throw new Error('NetHunt did not return the new company'); made = 'company'; }
+      let np = 0; if (CAP.addPerson && pe.name && !(CAP.dup && CAP.dup.pe)) { const w = String(pe.name).trim().split(/\s+/); await C.nhCall('create_record', { folderId: CT_ID, fieldKeys: 'label', fields: Object.fromEntries(Object.entries({ Name: pe.name.trim(), 'First name': w[0], 'Last name': w.slice(1).join(' ') || void 0, Title: pe.title || void 0, Company: [ id ], Email: pe.email ? [ pe.email ] : void 0, 'Phone number': pe.phone ? [ pe.phone ] : void 0, LinkedIn: pe.linkedin || void 0 }).filter(([, v]) => v !== void 0 && v !== '')) }); np = 1; }
+      const nm = existing ? (existing.fields || {}).Name || co.name : co.name; const text = made ? `${nm} added to NetHunt${np ? ` with ${pe.name}` : ''}` : np ? `${pe.name} added to ${nm}` : `${nm} is already in NetHunt — nothing new to add`;
+      (made || np) && miLog({ action: 'Other', outcome: `added to NetHunt · ➕ browser`, text: `${nm}${np ? ` + ${pe.name}` : ''} — ${CAP.d.u}`, company_id: id });
+      CAP.done = { id, text }; capDraw(); C.say(`✓ ${text}`); }
+    catch (e) { btn.disabled = !1; btn.textContent = '➕ Add to NetHunt'; C.say(`Not added: ${C.nhErr ? C.nhErr(e) : e.message}`, !0); } }
+  function capTopBtn() { if (window.matchMedia && window.matchMedia('(max-width: 760px)').matches) return; const v = document.querySelector('.cm-build'); if (!v || !v.parentElement || v.parentElement.querySelector('.cm-capbtn')) return; const b = __cm.el('button', 'cm-chip cm-capbtn', '➕ Browser button'); b.type = 'button'; b.title = 'Add companies and people to NetHunt from any web page'; b.addEventListener('click', () => openCapHelp(b)); const c0 = v.parentElement.querySelector('.cm-cpgbtn'); (c0 || v).after(b); }
+  const CAP_H0 = location.hash || ''; window.addEventListener('hashchange', () => capFromHash()); setTimeout(() => capFromHash(CAP_H0), 400); // the page may change the address while it starts
+  // 🧰 one menu in the top bar for ✨ Not in NetHunt · 🔎 Enrich · 📣 Campaigns · ⇄ Compare countries · ➕ Browser button (Kavi, 7 Nov 2026):
+  // the buttons stay (hidden) so everything that opened them still works; the menu presses them
+  function toolsMenu() { const top = document.querySelector('.cm-phtop'); if (!top || !top.parentElement) return; let b = top.parentElement.querySelector('.cm-toolsbtn'); if (b) return; const C = __cm;
+    b = C.el('button', 'cm-chip cm-toolsbtn', '🧰 Tools ▾'); b.type = 'button'; b.title = 'Not in NetHunt · Enrich · Campaigns · Compare countries · Browser button'; b.setAttribute('aria-haspopup', 'menu');
+    const press = (sel) => () => { const x = document.querySelector(sel); x ? x.click() : C.say('Not available here', !0); };
+    b.addEventListener('click', () => C.openMenu(b, [ [ '✨', 'Not in NetHunt', 'companies not in NetHunt yet', '.cm-nhbtn' ], [ '🔎', 'Enrich', 'companies with no phone or email yet', '.cm-enrtop' ], [ '📣', 'Campaigns', 'email campaigns with follow-ups', '.cm-cpgbtn' ], [ '⇄', 'Compare countries', 'side by side', '.cm-tb-cmp' ], [ '➕', 'Browser button', 'add from any web page', '.cm-capbtn' ] ]
+      .filter(([, , , q]) => document.querySelector(q)).map(([icon, label, , q]) => ({ icon, label, act: press(q) }))));
+    const en = top.parentElement.querySelector('.cm-enrtop'); (en || top).after(b); }
   function cpTopBtn() { const v = document.querySelector('.cm-build'); if (!v || !v.parentElement || v.parentElement.querySelector('.cm-cpgbtn')) return; const b = __cm.el('button', 'cm-chip cm-cpgbtn', '📣 Campaigns'); b.type = 'button'; b.title = 'Email campaigns: pick companies in any countries with filters, then send emails with follow-ups';
     b.addEventListener('click', () => openCampPage(__cm.curView() === 'country' ? dash.params().iso : '')); const nb = v.parentElement.querySelector('.cm-nhbtn'); (nb || v.parentElement.querySelector('.cm-housebar') || v).after(b); }
   { const st = document.createElement('style'); st.textContent = `.cm-caintro { margin: 10px 0 4px; font-size: .86rem; }
@@ -7627,7 +7747,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     (ppl || []).forEach((p) => { const ph = String(p.phone || '').split(/, | \| |\n/).map((x) => x.trim()).filter(Boolean); (ph.length || p.email) && L.push({ name: p.name, title: p.title, phones: ph, emails: [p.email].filter(Boolean), company, country: ctry, website }); });
     const used = new Set(L.flatMap((c) => c.phones.map((x) => C.digits(x).slice(-8)))); const rest = (companyPhones || []).filter((x) => !used.has(C.digits(x).slice(-8))); rest.length && L.push({ name: '', phones: rest, company, country: ctry, website });
     if (!L.length) { C.say('No phone number or email to save yet', !0); return; } if (L.length === 1) { saveContacts(L, L[0].name || company); return; }
-    C.openMenu(anchor, [ ...L.slice(0, 10).map((c) => ({ icon: '📇', label: c.name || `${company} (company number)`, sub: [c.title, ...c.phones.slice(0, 2)].filter(Boolean).join(' · '), act: () => saveContacts([c], c.name || company) })), { icon: '👥', label: `All ${L.length} at ${company}`, sub: 'one file, every contact', act: () => saveContacts(L, company) } ]); }
+    C.openMenu(anchor, [ ...L.slice(0, 10).map((c) => ({ icon: '📇', label: c.name || `${company} (company number)`, sub: [c.title, ...c.phones.slice(0, 2)].filter(Boolean).join(' · '), act: () => saveContacts([c], c.name || company) })), { icon: '👥', label: `All ${L.length} at ${company}`, act: () => saveContacts(L, company) } ]); }
   // ===================== 🌤 the weather where the company is (Power hour top bar, next to their time) =====================
   const WX = new Map(); // `${iso}|${city}` → { at, d } (20 minutes)
   function wxChip(iso, city) { const C = __cm; const sp = C.el('span', 'cm-wx'); const k = `${iso}|${String(city).split(/,|\n/)[0].trim().toLowerCase()}`; const c0 = C.rowsOf('countries').find((r) => r.iso === iso) || {};
@@ -7780,8 +7900,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
       ev.stopPropagation();
       C.openMenu(b, Object.entries(QL_LBL).map(([k, [i2, l2]]) => ({
         icon: i2,
-        label: l2,
-        sub: k === q.label ? 'current' : '',
+        label: `${l2}${k === q.label ? ' ✓' : ''}`,
         act: () => {
           QL.set(e.key, {
             label: k,
@@ -9210,7 +9329,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     /* 🧪 Prequalify, 🔬 Research and 🔎 Find details are steps of ⚡ Qualify & enrich now — one button */
     bb('🔗 Link matches', () => lpLinkSure(sel().filter(r => r.m)));
     bb('＋ Add to NetHunt', () => lpAdd(sel()), 'go');
-    bb('⬇ CSV', () => lpCsv(L));
+    { const cv = bb(`⬇ CSV · ${L.length.toLocaleString('en')}`, () => lpCsv(L)); cv.title = `Download the ${L.length.toLocaleString('en')} companies that match your filters and search (not the whole list)`; }
     { const sk = bb('🧠 Lead research ▾', (ev) => skMenu(ev.currentTarget, sel().length ? sel() : L.slice(0, 500))); sk.title = 'Run the full Lead research skill (Richard) in Claude on these companies — export them, then import its results back here'; }
     LP.busy && bar.append(el('span', 'mut', LP.busy)); if (RR.run) { const sb = el('button', 'cm-mini', RR.stop ? 'stopping…' : '■ Stop'); sb.type = 'button'; sb.addEventListener('click', () => { RR.stop = !0; lpDraw(); }); bar.append(sb); }
     p.append(bar);
@@ -9556,6 +9675,23 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     document.querySelectorAll('#cm-sheet .cm-phwho').forEach((w) => { const nb = w.querySelector('.cm-co'); const cid = nb && nb.dataset.openCompany; const ttl = document.getElementById('cm-sheet-title'); const sh = document.getElementById('cm-sheet');
       if (ttl && sh && !sh.hidden && /^⚡/.test(ttl.textContent || '') && document.querySelectorAll('#cm-sheet .cm-phwho').length === 1) { const old = w.querySelector(':scope > .cm-fit'); old && old.remove(); place(ttl, cid, null, !0); } else place(w, cid, nb, !0); });
   }
+  // Power hour: Skip · ⋯ (skip with a reason) · 🙈 Ignore sit in the top bar, next to the 🎯 fit badge (“Worth it”) — Kavi, 7 Nov 2026
+  function phTopActs() { const sh = document.getElementById('cm-sheet'); const ttl = document.getElementById('cm-sheet-title'); if (!sh || sh.hidden || !ttl || !/^⚡/.test(ttl.textContent || '')) return;
+    const acts = sh.querySelector('.sb .acts'); if (!acts) return; const sk = acts.querySelector('.cm-phskip'); const ig = [ ...acts.querySelectorAll('button') ].find((b) => /Ignore/.test(b.textContent)); if (!sk && !ig) return;
+    let box = ttl.querySelector(':scope > .cm-phtacts'); box ? box.replaceChildren() : (box = __cm.el('span', 'cm-phtacts'));
+    const why = sk && sk.nextElementSibling && sk.nextElementSibling.classList.contains('cm-skipwhy') ? sk.nextElementSibling : null;
+    [ sk, why, ig ].filter(Boolean).forEach((b) => box.append(b)); if (!box.parentNode) { const md = ttl.querySelector(':scope > .cm-phmodes'); md ? md.before(box) : ttl.append(box); } }
+  // ⚡ Power hour focus chips in the top bar, next to ✕: All · 💬 Replies · 👋 Intros · 🔁 Follow-ups (with counts; empty ones hidden)
+  function phModeChips() { const X2 = window.__cm2x; const sh = document.getElementById('cm-sheet'); const ttl = document.getElementById('cm-sheet-title'); if (!X2 || !X2.phFocusGet || !sh || sh.hidden || !ttl || !/^⚡/.test(ttl.textContent || '') || X2.phModeNow() === 'enrich') return;
+    let q = null; try { q = X2.powerQueue(); } catch (_e) { return; } if (!q || !q.counts) return; const f = X2.phFocusGet(); const sig = `${f}|${q.counts.replies}|${q.counts.intros}|${q.counts.follow}`;
+    const old = ttl.querySelector(':scope > .cm-phmodes'); if (old && old.dataset.sig === sig) return; old && old.remove();
+    const C = __cm; const box = C.el('span', 'cm-phmodes'); box.dataset.sig = sig;
+    const L = [ [ '', '⚡', 'All', q.counts.replies + q.counts.intros + q.counts.follow, 'Everything, in the usual order' ], [ 'replies', '💬', 'Replies', q.counts.replies, 'They wrote or replied — not yet Interested' ], [ 'intros', '👋', 'Intros', q.counts.intros, 'Lead · Enriched · To be qualified · Contacted · Drips…' ], [ 'follow', '🔁', 'Follow-ups', q.counts.follow, 'Interested and above, meetings near and follow-ups due' ] ];
+    const cur = L.find(([k]) => k === f) || L[0]; const b = C.el('button', 'cm-chip cm-phmode' + (f ? ' on' : ''), `${cur[1]} ${cur[2]}${f ? ` ${cur[3]}` : ''} ▾`); b.type = 'button'; b.setAttribute('aria-haspopup', 'menu'); b.title = 'Power hour focus: All · Replies · Intros · Follow-ups';
+    const go = (k) => { if (k === f) return; X2.phFocusSet(k); const a = document.querySelector('.cm-phbtn') || document.body; C.closeSheet(); window.__cm2 && window.__cm2.openPowerHour ? window.__cm2.openPowerHour(a) : a.click(); };
+    b.addEventListener('click', (e) => { e.stopPropagation(); C.openMenu(b, L.filter(([k, , , n]) => !k || n || k === f).map(([k, icon, label, n]) => ({ icon, label: `${label}${k ? ` · ${n}` : ''}${k === f ? ' ✓' : ''}`, act: () => go(k) })) /* no description lines (Kavi, 8 Nov 2026) */); });
+    box.append(b);
+    ttl.append(box); }
   // ===================== micro features =====================
   const histOf = (cid) => { const ch = dash.data('contact_history'); return 'ok' === ch.status ? ch.data.filter((e) => e.record_id === cid).sort((a, b) => new Date(b.time) - new Date(a.time)) : []; };
   const agoTxt = (t) => { const d = Math.floor((Date.now() - new Date(t)) / 864e5); return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
@@ -9632,7 +9768,7 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     for (let d = d0; d <= dayIdx(Date.now()); d++) { const x = P.get(d); if (!x) continue; x.cos.forEach((c) => all.add(c)); cos += x.cos.size; if (!best || x.cos.size > best.n) best = { d, n: x.cos.size }; }
     const ch = dash.data('contact_history'); const wk = 'ok' === ch.status ? ch.data.filter((e) => +new Date(e.time) >= +mon) : []; const rep = new Set(wk.filter((e) => e.dir === 'in' && all.has(e.record_id)).map((e) => e.record_id)).size; const meet = wk.filter((e) => e.type === 'meeting').length;
     const txt = `📅 Your week: ${cos} compan${cos === 1 ? 'y' : 'ies'} worked · ${rep} repl${rep === 1 ? 'y' : 'ies'} · ${meet} meeting${meet === 1 ? '' : 's'}${best && best.n ? ` · best day ${new Date(dayDate(best.d)).toLocaleDateString('en-GB', { weekday: 'long' })} (${best.n})` : ''}`;
-    if (card && card.textContent === txt) return; const n = C.el('div', 'cm-weekme', txt); card ? card.replaceWith(n) : (hv.querySelector('.cm-wrban') || hv.firstElementChild) ? (hv.querySelector('.cm-wrban') ? hv.querySelector('.cm-wrban').after(n) : hv.prepend(n)) : hv.prepend(n);
+    const goal0 = hv.querySelector('section.cm-goal'); if (card && card.textContent === txt && (!goal0 || card.nextElementSibling === goal0)) return; const n = C.el('div', 'cm-weekme', txt); const goal = hv.querySelector('section.cm-goal'); card && card.remove(); goal ? goal.before(n) : hv.append(n); // at the bottom of Home, just above 🎯 Today's goal (Kavi, 7 Nov 2026)
   }
   // ===================== 🔍 one company not in NetHunt: everything we know + Richard's steps (free checks → website → evidence → people → verified emails → add) =====================
   const LOBJ = new Map(); // key → { e, iso } for every lead row drawn
@@ -9827,8 +9963,8 @@ ${text}`, engine); return String(t).replace(/^Subject:.*\n+/i, '').replace(/^["�
     RQ.save(); QL.save ? QL.save() : qlSave(); lfSave(); PPL.save(); VM.save(); miLog({ action: 'Other', outcome: `imported Lead research results: ${res.matched} companies` });
     return { ...res, people: [ ...P.values() ].reduce((a, L) => a + L.length, 0) }; }
   function skMenu(btn, rows) { const C = __cm;
-    C.openMenu(btn, [ { icon: '📤', label: `Export ${Math.min(500, rows.length)} for the Lead research skill`, sub: 'a file Claude reads as it is — then the prompt is copied for you', act: () => { const x = skExport(rows); x && copyText(skPrompt(x)).then(() => C.say(`📤 ${x.file} downloaded · the prompt for Claude is copied — open Claude (Cowork), attach the file and paste`)); } },
-      { icon: '📥', label: 'Import the skill’s results', sub: 'company_outcomes.csv (+ nethunt_writes.csv, nethunt_import.csv, contacts_ready.csv)', act: () => { const f = C.el('input'); f.type = 'file'; f.accept = '.csv,text/csv'; f.multiple = !0; f.addEventListener('change', async () => { try { const r = await skImport([ ...f.files ]); if (!r) return; try { lpDraw(); } catch (_e) { /* the list redraws on its own */ } C.say(`🧠 Imported ${r.matched} compan${r.matched === 1 ? 'y' : 'ies'}${r.people ? ` and ${r.people} people` : ''}${r.pushed ? ` · ${r.pushed} pushed to NetHunt by Claude (off the list now)` : ''}${r.missing.length ? ` · ${r.missing.length} not found here (${r.missing.slice(0, 3).join(', ')}${r.missing.length > 3 ? '…' : ''})` : ''} — ${Object.entries(r.counts).map(([k, n]) => `${n} ${k}`).join(', ')}`); lpDraw(); } catch (er) { C.say(`Couldn’t import: ${er.message || er}`, !0); } }); f.click(); } },
+    C.openMenu(btn, [ { icon: '📤', label: `Export ${Math.min(500, rows.length)} for the Lead research skill`,  act: () => { const x = skExport(rows); x && copyText(skPrompt(x)).then(() => C.say(`📤 ${x.file} downloaded · the prompt for Claude is copied — open Claude (Cowork), attach the file and paste`)); } },
+      { icon: '📥', label: 'Import the skill’s results',  act: () => { const f = C.el('input'); f.type = 'file'; f.accept = '.csv,text/csv'; f.multiple = !0; f.addEventListener('change', async () => { try { const r = await skImport([ ...f.files ]); if (!r) return; try { lpDraw(); } catch (_e) { /* the list redraws on its own */ } C.say(`🧠 Imported ${r.matched} compan${r.matched === 1 ? 'y' : 'ies'}${r.people ? ` and ${r.people} people` : ''}${r.pushed ? ` · ${r.pushed} pushed to NetHunt by Claude (off the list now)` : ''}${r.missing.length ? ` · ${r.missing.length} not found here (${r.missing.slice(0, 3).join(', ')}${r.missing.length > 3 ? '…' : ''})` : ''} — ${Object.entries(r.counts).map(([k, n]) => `${n} ${k}`).join(', ')}`); lpDraw(); } catch (er) { C.say(`Couldn’t import: ${er.message || er}`, !0); } }); f.click(); } },
       { icon: '📋', label: 'Copy the prompt only', act: () => copyText(skPrompt({ file: 'the exported file', n: Math.min(500, rows.length), isos: [ ...new Set(rows.map((r) => r.iso)) ] })).then(() => C.say('📋 Prompt copied')) } ]); }
   // 🔬 deep check: one more look from other sources (LinkedIn / Facebook company pages, catalogues, directories), aimed at what is still open
   async function leadDeep(e, iso) { const rq = RQ.get(e.key) || {}; const ctry = skCountry(iso); const hint = [ e.tender && e.tender.niche, e.sup && e.sup.cat, e.moh && e.moh.sub ].filter(Boolean).join(' · ');
@@ -11301,7 +11437,7 @@ section.cm-folded.cm-wide, .cm-grid2 > section.cm-folded { align-self: start; }
 .cm-lgkind { margin-bottom: 6px; } .cm-lgout { margin: 4px 0; } .cm-lgbox { display: grid; gap: 6px; margin: 8px 0; padding: 10px; border-radius: 12px; border: 1px solid var(--color-border-line); } .cm-lgbox .ll { font-size: .82rem; color: var(--color-fg-muted); margin-right: 4px; } .cm-lgstep, .cm-mtpick input { width: 100%; box-sizing: border-box; font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; } .cm-lgfu .cm-date { max-width: 9.5rem; } .cm-mtco .cm-mtcob { padding: 4px 12px; font-size: .84rem; margin-left: auto; }
 @media (max-width: 760px) { .cm-mtrow { flex-wrap: wrap; } .cm-mtnote { width: 100%; } }`; document.head.append(st); }
 
-  const watch = [ () => oemAuto(), cpCoWatch, brainWatch, reachWatch, assocWatch, coTabWatch, cnWatch, mfPageWatch, obWatch, scoWatch, coWxWatch, foldWatch, () => mtHomeWatch(), mtCoWatch, taskBadge, kolTabWatch, kolWatch, () => { const k = document.querySelector('.cm-kolbtn'); k && k.remove(); }, gapWatch, dupWatch, statusColours, enrichBtn, () => { const o = document.querySelector('#brand-view .cm-brprof'); o && o.remove(); } /* the 🏭 Manufacturer profile card replaces the old Brand profile form */, supWatch, nhTabWatch, nhTopBtn, cpTopBtn, lpWatch, rnTopBtn, wrBanner, () => fitWatch(), phMicro, coMicro, pinMicro, remember, newDots, weekCard ];
+  const watch = [ () => oemAuto(), cpCoWatch, capTopBtn, toolsMenu, phTopActs, phModeChips, brainWatch, reachWatch, assocWatch, coTabWatch, cnWatch, mfPageWatch, obWatch, scoWatch, coWxWatch, foldWatch, () => mtHomeWatch(), mtCoWatch, taskBadge, kolTabWatch, kolWatch, () => { const k = document.querySelector('.cm-kolbtn'); k && k.remove(); }, gapWatch, dupWatch, statusColours, enrichBtn, () => { const o = document.querySelector('#brand-view .cm-brprof'); o && o.remove(); } /* the 🏭 Manufacturer profile card replaces the old Brand profile form */, supWatch, nhTabWatch, nhTopBtn, cpTopBtn, lpWatch, rnTopBtn, wrBanner, () => fitWatch(), phMicro, coMicro, pinMicro, remember, newDots, weekCard ];
   // ===================== ➕ Add info (Power hour “How did it go?”): paste what you found online — phones, emails, website, brands they represent, people, notes — sorted (✨ AI or simple rules) into the right NetHunt fields =====================
   const PI = new Map(); // cid → { text, items, by: 'rules'|'ai', busy, err, saved }
   const PI_KIND = { phone: [ '📞', 'Phone', 'Phone number' ], email: [ '✉', 'Email', 'Email' ], website: [ '🌐', 'Website', 'Website' ], linkedin: [ '💼', 'LinkedIn', 'LinkedIn' ], address: [ '📍', 'Address', 'Address' ], city: [ '🏙', 'City', 'City' ], brand: [ '🔖', 'Brand they represent', 'Brand' ], person: [ '👤', 'New contact', 'People' ], note: [ '📝', 'Note', 'a comment' ] };
@@ -11612,7 +11748,7 @@ section.cm-folded.cm-wide, .cm-grid2 > section.cm-folded { align-self: start; }
     todayHome: !0, todayItems, todayList,
     useAdd, useRows, USE,
     MN, MT, mtList, mtCompanyFor, mtGemTitle, mtGemFor, mtTidy, mtRules, openLog, logSave, openMeetNotes, openMeetings, mtHomeWatch, mtCoWatch, mtLoadCal, mtLoadGem,
-    vcIntent, vcUrl, phoneOk, pplClean, skParseCsv, skImport, skPrompt, skExport, SKX, leadDeep, qlRulesX: (e) => qlRules(e), taskChip, waitTasks, taskBadge, aiReplyState, aiReplyErr, aiReplyRetry, reachCard, reachHooks, reachTouches, reachNext, parkAdvice, parkSet, parkWake, parkWatch, isParked, openParked, meetBlock, tripLegFor, reachInsert, PK, OFR,
+    vcIntent, vcUrl, phoneOk, pplClean, skParseCsv, skImport, skPrompt, skExport, SKX, openCapture, capBookmarklet, openCapHelp, leadDeep, qlRulesX: (e) => qlRules(e), taskChip, waitTasks, taskBadge, aiReplyState, aiReplyErr, aiReplyRetry, reachCard, reachHooks, reachTouches, reachNext, parkAdvice, parkSet, parkWake, parkWatch, isParked, openParked, meetBlock, tripLegFor, reachInsert, PK, OFR,
     LS, lsPull, lsPush, rnNoReply,
     openLead, leadDraw, RQ, VM, PPL, LOBJ,
     coFitFrom, repliesWaiting, workHours, openWeekly, openReplies,

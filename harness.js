@@ -74,7 +74,7 @@ function run(opts = {}) {
       (async () => {
         let r;
         try {
-          const answer = answers[id]({});
+          const answer = ((opts.answers && opts.answers[id]) || answers[id])({});
           const args = id === 'pipeline_changes' ? { since: SNAP, folderId: 'x' } : {};
           const out = loaders[id] ? await loaders[id].fn({ answer: JSON.stringify(answer), call: async () => JSON.stringify({ records: [] }), args, read: {} }) : answer;
           const data = Array.isArray(out) ? out : out.data || out.rows;

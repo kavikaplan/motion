@@ -1249,6 +1249,58 @@ a.cm-waok { position: relative; } a.cm-waok::after { content: ''; position: abso
 .cm-dayev { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; } .cm-dayev .t { min-width: 2.6rem; } .cm-dayev .x { font-size: .76rem; }
 .cm-daytag.upd { background: color-mix(in srgb, #8b8f96 18%, transparent); color: var(--color-fg-muted); }
 .cm-daybulk { margin: 2px 0; } .cm-daybulk > summary { cursor: pointer; padding: 6px 4px; font-size: .84rem; color: var(--color-fg-muted); }
+
+/* 🔴 countries where Next has a distributor (House editor) */
+.cm-ndadd { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 10px; } .cm-ndadd select, .cm-ndwho { flex: 1 1 160px; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; font: inherit; }
+.cm-ndlist { display: grid; gap: 4px; margin-bottom: 10px; } .cm-ndrow { display: grid; grid-template-columns: minmax(110px, 160px) 1fr auto; gap: 6px; align-items: center; } .cm-ndrow b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-nexthide.on { background: color-mix(in srgb, #e5484d 18%, transparent); border-color: color-mix(in srgb, #e5484d 50%, transparent); }
+
+/* ⚙ Filter on Best partners (NetHunt-style conditions) */
+.cm-pflbox { display: grid; gap: 8px; margin: 8px 0; padding: 10px; border: 1px solid var(--color-border-line); border-radius: 12px; }
+.cm-pflrow { display: grid; grid-template-columns: 74px minmax(120px, 1fr) minmax(100px, 150px) minmax(120px, 1.3fr) auto; gap: 6px; align-items: start; }
+.cm-pflrow select, .cm-pflrow input { width: 100%; min-width: 0; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; font: inherit; }
+.cm-pflrow select[multiple] { padding: 2px; } .cm-pflby { font-size: .84rem; color: var(--color-fg-muted); padding-top: 7px; } .cm-pflvw { display: grid; gap: 2px; } .cm-pflcnt { font-size: .74rem; }
+.cm-pflfoot { display: flex; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.cm-pflbtn.on { background: color-mix(in srgb, var(--color-accent, #3b82f6) 18%, transparent); border-color: color-mix(in srgb, var(--color-accent, #3b82f6) 50%, transparent); }
+.cm-pflsum { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: .8rem; color: var(--color-fg-muted); }
+@media (max-width: 640px) { .cm-pflrow { grid-template-columns: 1fr 1fr; } .cm-pflrow .cm-pflby, .cm-pflrow .cm-pflm { grid-column: 1 / -1; } .cm-pflrow .cm-pflvw, .cm-pflrow input.cm-pflv { grid-column: 1 / -1; } }
+
+/* ➕ Add to Medint (browser button) */
+.cm-cap { max-width: 720px; } .cm-capsrc { display: block; margin: 4px 0 10px; font-size: .84rem; color: var(--color-fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-capbusy { padding: 14px; border-radius: 12px; border: 1px dashed var(--color-border-line); margin: 10px 0; }
+.cm-capcard { border: 1px solid var(--color-border-line); border-radius: 14px; padding: 12px 14px; margin: 10px 0; display: grid; gap: 8px; } .cm-capcard h3 { margin: 0 0 2px; font-size: 1rem; } .cm-capcard h3 label { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.cm-capf { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; } .cm-capf > span { font-size: .82rem; color: var(--color-fg-muted); }
+.cm-capf input, .cm-capf select, .cm-capf textarea { width: 100%; min-width: 0; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--color-border-line); background: transparent; color: inherit; font: inherit; } .cm-capf textarea { min-height: 54px; resize: vertical; }
+.cm-capdup { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: color-mix(in srgb, #30a46c 14%, transparent); font-size: .86rem; }
+.cm-capgo { width: 100%; padding: 12px; font-size: 1rem; margin: 6px 0 18px; } .cm-capdone { display: grid; gap: 10px; padding: 16px; border-radius: 14px; background: color-mix(in srgb, #30a46c 14%, transparent); margin: 12px 0; }
+.cm-capbmw { text-align: center; margin: 14px 0; } .cm-capbm { font-size: 1.05rem; padding: 10px 18px; cursor: grab; } .cm-capurl { display: flex; gap: 6px; margin-top: 10px; } .cm-capurl input { flex: 1; min-width: 0; }
+@media (max-width: 560px) { .cm-capf { grid-template-columns: 1fr; gap: 3px; } }
+
+/* top bar, simpler (Kavi, 7 Nov 2026): the tools sit in 🧰 Tools ▾; no version label, no shortcut hint */
+.cm-nhbtn, .cm-enrtop, .cm-cpgbtn, .cm-capbtn, .cm-tb-cmp, .cm-build, .cm-kbd { display: none !important; }
+/* Power hour: Skip · ⋯ · 🙈 Ignore in the top bar */
+.cm-phtacts { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; vertical-align: middle; } .cm-phtacts .cm-btn { padding: 3px 10px; font-size: .82rem; min-height: 0; } .cm-phtacts .cm-mini { font-size: .8rem; }
+
+/* ✉ email from Power hour: a full-height panel on the right (like 🔎 Find contacts); Power hour moves to the left; ⤢ makes it big */
+:root { --md-w: min(640px, 46vw); }
+.cm-maildock { position: fixed; top: 0; right: 0; bottom: 0; z-index: 1240; width: var(--md-w); display: flex; flex-direction: column; background: var(--color-bg-elevated, var(--color-bg, #fff)); border-left: 1px solid var(--color-border-line); box-shadow: -12px 0 40px rgba(0,0,0,.4); }
+.cm-maildock.max { inset: 3vh 4vw; width: auto; border: 1px solid var(--color-border-line); border-radius: 14px; }
+.cm-mdhd { display: flex; align-items: center; gap: 6px; padding: 12px 12px 10px 16px; border-bottom: 1px solid var(--color-border-line); } .cm-mdhd b { flex: 1; font-size: 1rem; }
+.cm-mdbody { flex: 1; overflow: auto; padding: 10px 16px 16px; }
+@media (min-width: 1000px) { body.cm-mdopen #cm-sheet.center { left: calc((100vw - var(--md-w)) / 2) !important; width: min(1000px, calc(100vw - var(--md-w) - 30px)) !important; } }
+@media (max-width: 999px) { :root { --md-w: min(560px, 100vw); } }
+@media (max-width: 700px) { .cm-maildock, .cm-maildock.max { inset: 0; width: auto; border-radius: 0; } }
+/* ✔ review before sending */
+.cm-mlrev { border: 1px solid color-mix(in srgb, #f5a623 55%, transparent); background: color-mix(in srgb, #f5a623 12%, transparent); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; margin: 8px 0; }
+.cm-mlrevl { font-size: .88rem; } .cm-mlrevb { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 4px; }
+
+/* ⚡ Power hour focus chips (All · Replies · Intros · Follow-ups) in the top bar */
+.cm-phmodes { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-left: 8px; vertical-align: middle; } .cm-phmode { font-size: .78rem; padding: 2px 9px; min-height: 0; } .cm-phmode.on { background: color-mix(in srgb, var(--color-accent, #3b82f6) 22%, transparent); border-color: color-mix(in srgb, var(--color-accent, #3b82f6) 55%, transparent); font-weight: 600; }
+
+/* Best partners sorted by status: a thin coloured line where each status starts */
+.cm-stsep { height: 3px; border-radius: 3px; margin: 10px 2px 4px; opacity: .85; } .cm-stsep.first { margin-top: 2px; }
+/* 📣 Your campaigns: status chips */
+.cm-cpst { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px; } .cm-cpst .cm-chip.on { font-weight: 600; background: color-mix(in srgb, var(--color-accent, #3b82f6) 18%, transparent); }
 </style>
 
 <div class="cm">
@@ -1718,7 +1770,7 @@ const nhLoad = async ({ answer, call, args }) => {
     const f = r.fields || {};
     const li = f['Last Interaction Date'];
     const lc = f['Last Call'];
-    return { id: r.id, company: f.Name ?? '', country: list(f.Country, ' | '), city: list(f.City, ', '), category: f.Category ?? '', status: f.Status ?? '', next_status: f['NEXT Status'] ?? '', motion_status: f['Motion Status'] ?? '', last_interaction: li ? new Date(Number(li)).toISOString() : null, brands: list(f.Brand, '\n'), phones: list(f['Phone number'], ' | '), emails: list(f.Email, ' | '), website: f.Website ?? '', linkedin: f.LinkedIn ?? '', facebook: f.Facebook ?? '', instagram: f.Instagram ?? '', twitter: f.Twitter ?? '', notes: String(f.Notes ?? '').slice(0, 1500), update: String(f.Update ?? '').slice(-1500), calls_total: f['Total Calls'] ?? null, last_call: lc ? new Date(Number(lc)).toISOString() : null, emails_total: f['Total Emails'] ?? null, emails_sent: f['Total Emails Sent'] ?? null, email_opens: f['Email Open Count'] ?? null, people: [].concat(f['Related records'] || []).length, next_followup: f['Next follow-up'] ? new Date(Number(f['Next follow-up'])).toISOString().slice(0, 10) : null, next_step: f['Next step'] ?? '', tags: list(f.Tags, ' | '), google_maps: f['Google Maps'] ?? '', products: String(f.Products ?? '').slice(0, 300), ortho_sources: [].concat(f['Ortho evidence'] || []).join('|'), related_ids: [].concat(f['Related companies'] || []).join('|'), assigned_to: f['Assigned to'] || '', sending_identity: f['Sending identity'] || '' };
+    return { id: r.id, company: f.Name ?? '', country: list(f.Country, ' | '), city: list(f.City, ', '), category: f.Category ?? '', status: f.Status ?? '', next_status: f['NEXT Status'] ?? '', motion_status: f['Motion Status'] ?? '', last_interaction: li ? new Date(Number(li)).toISOString() : null, brands: list(f.Brand, '\n'), phones: list(f['Phone number'], ' | '), emails: list(f.Email, ' | '), website: f.Website ?? '', linkedin: f.LinkedIn ?? '', facebook: f.Facebook ?? '', instagram: f.Instagram ?? '', twitter: f.Twitter ?? '', notes: String(f.Notes ?? '').slice(0, 1500), update: String(f.Update ?? '').slice(-1500), calls_total: f['Total Calls'] ?? null, last_call: lc ? new Date(Number(lc)).toISOString() : null, emails_total: f['Total Emails'] ?? null, emails_sent: f['Total Emails Sent'] ?? null, email_opens: f['Email Open Count'] ?? null, people: [].concat(f['Related records'] || []).length, next_followup: f['Next follow-up'] ? new Date(Number(f['Next follow-up'])).toISOString().slice(0, 10) : null, next_step: f['Next step'] ?? '', tags: list(f.Tags, ' | '), google_maps: f['Google Maps'] ?? '', products: String(f.Products ?? '').slice(0, 300), ortho_sources: [].concat(f['Ortho evidence'] || []).join('|'), related_ids: [].concat(f['Related companies'] || []).join('|'), assigned_to: f['Assigned to'] || '', sending_identity: f['Sending identity'] || '', do_import: list(f['Do you Import'], ' | '), source: list(f.Source, ' | '), industry: list(f.Industry, ' | '), company_size: list(f['Company size'], ' | '), highlights: String(f.Highlights ?? '').slice(0, 800), tender_usd: f['Public tender wins (USD)'] ?? null, manager: [].concat(f.Manager || []).map((m) => (m && typeof m === 'object' ? m.name || m.email || '' : String(m))).filter(Boolean).join(' | '), related_n: [].concat(f['Related companies'] || []).length }; // the extra ones are for Best partners' ⚙ Filter
   });
   return { data: rows, columns: ['id', 'company', 'country', 'city', 'category', 'status', 'next_status', 'motion_status', 'last_interaction', 'brands', 'phones', 'emails', 'website', 'linkedin', 'facebook', 'instagram', 'twitter', 'notes', 'update', 'calls_total', 'last_call', 'emails_total', 'emails_sent', 'email_opens', 'people', 'next_followup', 'next_step', 'tags', 'google_maps', 'products', 'ortho_sources', 'related_ids', 'assigned_to', 'sending_identity'], cut: !!cursor, meta: [{ label: 'Records NetHunt reports for this filter', value: String(total) }] };
 };
@@ -1790,12 +1842,18 @@ dash.loader('company_contacts', {
     return { data, columns: ['for_cid', 'id', 'name', 'title', 'email', 'phone', 'linkedin', 'contact_type', 'emails_sent', 'last_interaction'] };
   },
 });
+// calls and notes written from Medint are signed “— Yaman” (one NetHunt login for the team, so NetHunt shows its owner as the author):
+// the signature decides who did it, and it is taken off the text
+const NH_SIG = /(?:\n|<br\s*\/?>|\s)\s*— ([^\n<—]{2,40}?)\s*(?:<\/p>)?\s*$/i;
+const nhSig = (e) => { if (!e || !/^(call|comment)$/.test(String(e.type || ''))) return ''; for (const t of [ e && e.text, e && e.call && e.call.text, e && e.comment && e.comment.text ]) { const m = String(t || '').trim().match(NH_SIG); if (m) return m[1].trim(); } return ''; };
+const nhBy = (e) => nhSig(e) || (e && e.creator && e.creator.name) || '';
+const nhUnsig = (t) => String(t || '').trim().replace(NH_SIG, '').trim();
 const tlLoad = {
   description: 'The company’s latest NetHunt timeline events, one row each with time, type, who and a short summary.',
   fn: ({ answer }) => {
     const p = nhParse(answer);
     if (!p || !Array.isArray(p.events)) throw new Error((p && (p.message || p.error)) || 'NetHunt returned no events');
-    const data = p.events.map((e) => ({ id: e.id, rid: e.recordId || '', time: e.timeISO, type: e.type, by: (e.creator && e.creator.name) || '', title: e.campaignName || e.subject || e.summary || (e.chat && `WhatsApp · ${e.chat.name || ''}`.trim()) || (e.call && e.call.direction) || '', detail: String(e.text || e.snippet || e.emailTo || e.description || (e.chat && e.chat.lastMessage && e.chat.lastMessage.body) || (e.call && e.call.text) || '').slice(0, 4000), replies: e.replyMsgsCount ?? null, chat_status: (e.chat && e.chat.status) || '', chat_msgs: (e.chat && e.chat.totalMessageCount) ?? null, chat_name: (e.chat && e.chat.name) || '' }));
+    const data = p.events.map((e) => ({ id: e.id, rid: e.recordId || '', time: e.timeISO, type: e.type, by: nhBy(e), signed: !!nhSig(e), title: e.campaignName || e.subject || e.summary || (e.chat && `WhatsApp · ${e.chat.name || ''}`.trim()) || (e.call && e.call.direction) || '', detail: (nhSig(e) ? nhUnsig : String)(e.text || e.snippet || e.emailTo || e.description || (e.chat && e.chat.lastMessage && e.chat.lastMessage.body) || (e.call && e.call.text) || '').slice(0, 4000), replies: e.replyMsgsCount ?? null, chat_status: (e.chat && e.chat.status) || '', chat_msgs: (e.chat && e.chat.totalMessageCount) ?? null, chat_name: (e.chat && e.chat.name) || '' }));
     return { data, columns: ['id', 'rid', 'time', 'type', 'by', 'title', 'detail', 'replies', 'chat_status', 'chat_msgs', 'chat_name'] };
   },
 };
@@ -1824,7 +1882,7 @@ dash.loader('activity_2w', {
     if (!p || !Array.isArray(p.events)) throw new Error((p && (p.message || p.error)) || 'NetHunt returned no timeline');
     const ev = [...p.events]; let cursor = p.nextCursor; let n = 1;
     while (cursor && n < 6) { p = nhParse(await call('list_folder_timeline', { ...args, cursor })); ev.push(...(p.events || [])); cursor = p.nextCursor; n += 1; }
-    const data = ev.map((e) => ({ id: e.id, time: e.timeISO || new Date(Number(e.time)).toISOString(), type: e.type, record_id: e.recordId, by: (e.creator && (e.creator.name || e.creator.email)) || '', by_email: (e.creator && e.creator.email) || '', origin: e.origin || '', summary: e.type === 'calendar' ? (e.summary || '') : '', link: e.type === 'calendar' ? (e.htmlLink || '') : '' }));
+    const data = ev.map((e) => ({ id: e.id, time: e.timeISO || new Date(Number(e.time)).toISOString(), type: e.type, record_id: e.recordId, by: nhSig(e) || (e.creator && (e.creator.name || e.creator.email)) || '', by_email: (e.creator && e.creator.email) || '', origin: e.origin || '', summary: e.type === 'calendar' ? (e.summary || '') : '', link: e.type === 'calendar' ? (e.htmlLink || '') : '' }));
     return { data, columns: ['id', 'time', 'type', 'record_id', 'by', 'by_email', 'origin', 'summary', 'link'], cut: !!cursor };
   },
 });
@@ -1880,7 +1938,7 @@ dash.loader('comment_scan', {
     if (!p || !Array.isArray(p.events)) throw new Error((p && (p.message || p.error)) || 'NetHunt returned no comments');
     const ev = [...p.events]; let cursor = p.nextCursor; let n = 1;
     while (cursor && n < 5) { p = nhParse(await call('list_folder_timeline', { ...args, cursor })); ev.push(...(p.events || [])); cursor = p.nextCursor; n += 1; }
-    const data = ev.map((e) => ({ record_id: e.recordId, time: e.timeISO || new Date(Number(e.time)).toISOString(), by: (e.creator && e.creator.name) || '', text: String(e.text || e.body || e.comment || (e.comment && e.comment.text) || '').slice(0, 1200) }));
+    const data = ev.map((e) => ({ record_id: e.recordId, time: e.timeISO || new Date(Number(e.time)).toISOString(), by: nhBy(e), text: String(e.text || e.body || e.comment || (e.comment && e.comment.text) || '').slice(0, 1200) }));
     return { data, columns: ['record_id', 'time', 'by', 'text'] };
   },
 });
@@ -1905,7 +1963,7 @@ dash.loader('contact_history', {
     const data = ev.map((e) => {
       const by = (e.creator && (e.creator.email || '')) || '';
       const dir = e.type === 'chat' ? (e.chat && e.chat.status === 'NOT_REPLIED' ? 'in' : 'out') : e.type === 'email' ? (ours.test(by) ? 'out' : 'in') : 'out';
-      return { record_id: e.recordId, time: e.timeISO || new Date(Number(e.time)).toISOString(), type: e.type === 'calendar' ? 'meeting' : e.type, dir, by: (e.creator && e.creator.name) || '', by_email: by, chat_number: e.chat ? String(e.chat.name || '') : '', preview: String((e.chat && e.chat.lastMessage && e.chat.lastMessage.body) || e.subject || '').slice(0, 140) };
+      return { record_id: e.recordId, time: e.timeISO || new Date(Number(e.time)).toISOString(), type: e.type === 'calendar' ? 'meeting' : e.type, dir, by: nhBy(e), by_email: by, chat_number: e.chat ? String(e.chat.name || '') : '', preview: String((e.chat && e.chat.lastMessage && e.chat.lastMessage.body) || e.subject || '').slice(0, 140) };
     });
     return { data, columns: ['record_id', 'time', 'type', 'dir', 'by', 'by_email', 'chat_number', 'preview'], cut: !!cursor };
   },
