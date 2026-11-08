@@ -13,7 +13,7 @@ const P = require('path');
   const { run } = require('./harness'); const h = run({ site: true, params: { view: 'home', ours: 'dunitech' } }); await h.settle(); await new Promise((r) => setTimeout(r, 2500)); await h.settle(); const W = h.w, D = h.d, C = W.__cm; const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   // status order
   const L = [ 'Unprocessed', 'Lost', 'Contacted', 'Negotiating', 'Registration', 'Interested', 'Follow Up', 'Meeting', 'Enriched Leads', 'Nurturing', 'Distributor', '' ].sort((a, b) => W.cmStatusRank(a) - W.cmStatusRank(b));
-  console.log('status order:', L.join(' > ')); if (L.join('|') !== 'Registration|Negotiating|Follow Up|Meeting|Interested|Contacted|Enriched Leads|Nurturing|Distributor|Lost|Unprocessed|') bad.push('status order');
+  console.log('status order:', L.join(' > ')); if (L.join('|') !== 'Registration|Negotiating|Follow Up|Meeting|Interested|Contacted|Enriched Leads|Nurturing|Distributor|Unprocessed|Lost|') bad.push('status order');
   // Power hour in a country
   W.dash.setParams({ view: 'country', iso: 'CL', tags: [ 'chile' ], ctab: 'companies', csub: 'partners', psort: 'next' }); await h.settle(); await wait(300); await h.settle();
   D.querySelector('.cm-phbtn').click(); await h.settle(); await wait(400); await h.settle();

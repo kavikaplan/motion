@@ -30,7 +30,7 @@ const { run } = require('./harness');
   if (!/ONLY intramedullary nails/.test(pr) || !/NOT formal textbook Arabic/.test(pr) || !/"Yaman" in Latin letters/.test(pr)) bad.push('AI draft scope/arabic');
   // 4/5/7 email from Power hour: rich editor, signature visible & editable, images inline, back to Power hour
   const inPH = D.querySelector('#cm-sheet .cm-co'); await X.openMail({ anchor: inPH, to: 'contact@datsmedical.com', subject: 'Dunitech – STE', company: 'STE', cid: '', brand: 'Dunitech' }); await h.settle(); await wait(200);
-  const S = D.getElementById('cm-sheet'); const ed = S.querySelector('.cm-mlpaper .cm-mlbody[contenteditable="true"]'); const sg = S.querySelector('.cm-mlpaper .cm-mlsig[contenteditable="true"]'); const tools = [ ...S.querySelectorAll('.cm-mltool button') ].map((b) => b.title);
+  const S = D.getElementById('cm-maildock') || D.getElementById('cm-sheet'); /* from Power hour the email is docked on the right */ const ed = S.querySelector('.cm-mlpaper .cm-mlbody[contenteditable="true"]'); const sg = S.querySelector('.cm-mlpaper .cm-mlsig[contenteditable="true"]'); const tools = [ ...S.querySelectorAll('.cm-mltool button') ].map((b) => b.title);
   console.log('rich editor:', !!ed, '| signature inside the white paper & editable:', !!sg, sg && sg.textContent.replace(/\s+/g, ' ').trim(), '| tools:', tools.join(', '));
   if (!ed || !sg || !/Yaman/.test(sg.textContent) || !tools.includes('Centre') || !tools.some((t) => /image/i.test(t))) bad.push('editor');
   // paste: formatting kept, scripts and handlers dropped
